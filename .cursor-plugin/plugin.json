@@ -1,0 +1,16 @@
+{
+  "name": "langfuse-observability",
+  "displayName": "Langfuse Observability",
+  "version": "0.1.0",
+  "description": "Trace Cursor agent sessions to Langfuse: prompts, agent turns, model generations, tool calls, subagents and token usage.",
+  "author": {
+    "name": "Langfuse",
+    "email": "support@langfuse.com"
+  },
+  "homepage": "https://langfuse.com/integrations/developer-tools/cursor",
+  "repository": "https://github.com/langfuse/cursor-observability-plugin",
+  "license": "MIT",
+  "keywords": ["langfuse", "observability", "tracing", "hooks", "llm", "cost"],
+  "category": "developer-tools",
+  "hooks": "./hooks/hooks.json"
+}
