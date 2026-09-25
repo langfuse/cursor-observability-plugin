@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }],
+    "sessionEnd": [{ "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 60 }],
+    "beforeSubmitPrompt": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 60 }
+    ],
+    "preToolUse": [{ "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }],
+    "postToolUse": [{ "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }],
+    "postToolUseFailure": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "subagentStart": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "subagentStop": [{ "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }],
+    "beforeShellExecution": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "afterShellExecution": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "beforeMCPExecution": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "afterMCPExecution": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "beforeReadFile": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "afterFileEdit": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "afterAgentResponse": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "afterAgentThought": [
+      { "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }
+    ],
+    "preCompact": [{ "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 10 }],
+    "stop": [{ "command": "node \"${CURSOR_PLUGIN_ROOT}/dist/index.mjs\"", "timeout": 60 }]
+  }
+}
