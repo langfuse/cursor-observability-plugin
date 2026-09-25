@@ -1,0 +1,68 @@
+{
+  "name": "@langfuse/cursor-observability-plugin",
+  "version": "0.1.0",
+  "description": "Langfuse observability plugin for Cursor: traces agent turns, model generations, tool calls, subagents and token usage from Cursor hooks.",
+  "license": "MIT",
+  "author": "Langfuse",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/langfuse/cursor-observability-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/langfuse/cursor-observability-plugin/issues"
+  },
+  "homepage": "https://github.com/langfuse/cursor-observability-plugin#readme",
+  "keywords": [
+    "cursor",
+    "cursor-plugin",
+    "cursor-hooks",
+    "langfuse",
+    "observability",
+    "tracing",
+    "opentelemetry"
+  ],
+  "bin": {
+    "langfuse-cursor-hook": "./dist/index.mjs"
+  },
+  "files": [
+    ".cursor-plugin",
+    "hooks",
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "pnpm run format:check && pnpm run typecheck && pnpm run build",
+    "test": "pnpm run build && vitest run",
+    "test:watch": "vitest",
+    "prepack": "pnpm run build"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@langfuse/otel": "^5.10.0",
+    "@langfuse/tracing": "^5.10.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-trace-base": "^2.10.0",
+    "@opentelemetry/sdk-trace-node": "^2.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "prettier": "^3.9.4",
+    "tsdown": "^0.22.0",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
