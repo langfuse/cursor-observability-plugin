@@ -26,6 +26,8 @@ export type Config = {
   release?: string;
   user_id?: string;
   tags: string[];
+  /** Tag traces `skill:<name>` when a turn loads a skill. Default true. */
+  skill_tags: boolean;
   metadata: Record<string, string>;
   trace_seed?: string;
   traceparent?: string;
@@ -113,6 +115,7 @@ function readConfigFile(file: string): PartialConfig | undefined {
     release: asString(pick("release")),
     user_id: asString(pick("user_id", "userId")),
     tags: parseTags(pick("tags")),
+    skill_tags: parseBoolean(pick("skill_tags", "skillTags")),
     metadata: parseMetadata(pick("metadata")),
     trace_seed: asString(pick("trace_seed", "traceSeed")),
     traceparent: asString(pick("traceparent")),
@@ -140,6 +143,7 @@ function readEnvConfig(env: Record<string, string | undefined>): PartialConfig {
     release: asString(env.LANGFUSE_CURSOR_RELEASE) ?? asString(env.LANGFUSE_RELEASE),
     user_id: getVar("USER_ID", env),
     tags: parseTags(env.LANGFUSE_CURSOR_TAGS ?? env.LANGFUSE_TAGS),
+    skill_tags: parseBoolean(env.LANGFUSE_CURSOR_SKILL_TAGS),
     metadata: parseMetadata(env.LANGFUSE_CURSOR_METADATA),
     trace_seed: asString(env.LANGFUSE_CURSOR_TRACE_SEED),
     traceparent: asString(env.LANGFUSE_CURSOR_TRACEPARENT),
@@ -186,6 +190,7 @@ export function getConfig(options: ConfigOptions = {}): Config {
     release: merged.release,
     user_id: merged.user_id,
     tags: merged.tags ?? [],
+    skill_tags: merged.skill_tags ?? true,
     metadata: merged.metadata ?? {},
     trace_seed: merged.trace_seed,
     traceparent: merged.traceparent,

@@ -283,7 +283,9 @@ export type ChatMessage = {
   role: "user" | "assistant" | "tool";
   content?: unknown;
   tool_calls?: unknown[];
-  tool_results?: unknown[];
+  tool_call_id?: string;
+  name?: string;
+  is_error?: true;
 };
 
 export type Turn = {

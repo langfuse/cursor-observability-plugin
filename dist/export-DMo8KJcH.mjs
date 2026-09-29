@@ -1818,7 +1818,7 @@ function isMcpToolName(name) {
 * in the MCP hooks. Strip the `mcp` prefix and compare on the tool part.
 */
 function normalizeToolName(name) {
-	return name.toLowerCase().replace(/^mcp[:_.-]+/, "").replace(/[:.\-\s]+/g, "_");
+	return name.toLowerCase().replace(/^glob$/, "grep").replace(/^mcp[:_.-]+/, "").replace(/[:.\-\s]+/g, "_");
 }
 function nameMatchesTool(callName, toolName) {
 	const a = normalizeToolName(callName);
@@ -1828,7 +1828,12 @@ function nameMatchesTool(callName, toolName) {
 }
 function buildToolCalls(events, captureToolOutput) {
 	const calls = [];
-	const byId = /* @__PURE__ */ new Map();
+	const pending = (id, name) => {
+		if (!id) return void 0;
+		const same = calls.filter((c) => c.toolUseId === id);
+		const open = same.filter((c) => !c.sources.some((s) => s.startsWith("post")));
+		return open.find((c) => c.name === name) ?? open[0] ?? same[same.length - 1];
+	};
 	const findOpenByName = (name) => calls.find((c) => !c.toolUseId && c.endTime === c.startTime && (name === void 0 || c.name === name));
 	for (const e of eventsOf(events, "preToolUse")) {
 		const call = {
@@ -1842,13 +1847,11 @@ function buildToolCalls(events, captureToolOutput) {
 			subagents: []
 		};
 		calls.push(call);
-		if (call.toolUseId) byId.set(call.toolUseId, call);
 	}
 	const closeCall = (e, source) => {
 		const id = asString(e.payload.tool_use_id);
 		const name = asString(e.payload.tool_name) ?? "tool";
-		let call = id && byId.get(id) || void 0;
-		if (!call) call = findOpenByName(name);
+		let call = pending(id, name) ?? findOpenByName(name);
 		if (!call) {
 			const duration = asNumber(e.payload.duration) ?? 0;
 			call = {
@@ -1862,7 +1865,6 @@ function buildToolCalls(events, captureToolOutput) {
 				subagents: []
 			};
 			calls.push(call);
-			if (id) byId.set(id, call);
 		}
 		call.sources.push(source);
 		call.endTime = Math.max(e.ts, call.startTime);
@@ -2100,17 +2102,21 @@ function buildGenerationsFromTranscript(transcriptTurn, calls, thoughts, respons
 		}
 	});
 	const alignedResponses = responses.length === rows.length;
+	let cursor = turnStart;
 	for (let i = 0; i < generations.length; i++) {
 		const gen = generations[i];
-		gen.startTime = i === 0 ? turnStart : generations[i - 1].endTime;
-		const toolEnd = gen.toolCalls.reduce((m, c) => Math.max(m, c.endTime), gen.startTime);
-		const responseEnd = alignedResponses ? responses[i].ts : void 0;
-		gen.endTime = i === generations.length - 1 ? Math.max(turnEnd, toolEnd) : Math.max(gen.startTime, responseEnd ?? toolEnd);
+		gen.startTime = cursor;
+		const timed = gen.toolCalls.filter((c) => !c.sources.includes("transcript"));
+		const firstTool = Math.min(...timed.map((c) => c.startTime), Number.POSITIVE_INFINITY);
+		const toolEnd = Math.max(gen.startTime, ...timed.map((c) => c.endTime));
+		const requested = Number.isFinite(firstTool) ? firstTool : gen.startTime;
+		gen.endTime = i === generations.length - 1 ? Math.max(turnEnd, toolEnd) : Math.max(gen.startTime, alignedResponses ? responses[i].ts : requested);
 		if (alignedResponses && !gen.text) gen.text = responses[i].text;
 		for (const call of gen.toolCalls) if (call.sources.includes("transcript")) {
-			call.startTime = gen.startTime;
-			call.endTime = gen.startTime;
+			call.startTime = gen.endTime;
+			call.endTime = gen.endTime;
 		}
+		cursor = Math.max(gen.endTime, toolEnd);
 	}
 	assignByWindow(unassigned, generations, (gen, call) => gen.toolCalls.push(call));
 	assignByWindow(thoughts, generations, (gen, thought) => gen.thoughts.push(thought));
@@ -2199,7 +2205,13 @@ function assembleTurn(input) {
 		if (call.sources.includes("preToolUse") && call.sources.length === 1) call.endTime = endTime;
 	}
 	const orphanSubagents = attachSubagents(calls, buildSubagents(events));
-	const thoughts = eventsOf(events, "afterAgentThought").filter((e) => typeof e.payload.text === "string" && e.payload.text.length > 0).map((e) => ({
+	const seenThoughts = /* @__PURE__ */ new Set();
+	const thoughts = eventsOf(events, "afterAgentThought").filter((e) => typeof e.payload.text === "string" && e.payload.text.length > 0).filter((e) => {
+		const key = `${e.payload.duration_ms}:${e.payload.text}`;
+		if (seenThoughts.has(key)) return false;
+		seenThoughts.add(key);
+		return true;
+	}).map((e) => ({
 		text: e.payload.text,
 		durationMs: asNumber(e.payload.duration_ms),
 		ts: e.ts
@@ -22405,18 +22417,18 @@ var require_getMachineId = /* @__PURE__ */ __commonJSMin(((exports) => {
 	async function getMachineId() {
 		if (!getMachineIdImpl) switch (process$1.platform) {
 			case "darwin":
-				getMachineIdImpl = (await import("./getMachineId-darwin-aT6bUaZm.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-darwin-BP-v_aex.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "linux":
-				getMachineIdImpl = (await import("./getMachineId-linux-CIw7m3A1.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-linux-CT-k9GyP.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "freebsd":
-				getMachineIdImpl = (await import("./getMachineId-bsd-BzTG_YfH.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-bsd-OtBc7uIS.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "win32":
-				getMachineIdImpl = (await import("./getMachineId-win-yKHJKomT.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-win-PO5vsR5C.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
-			default: getMachineIdImpl = (await import("./getMachineId-unsupported-CW9XbvrJ.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+			default: getMachineIdImpl = (await import("./getMachineId-unsupported-i5z_58H2.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 		}
 		return getMachineIdImpl();
 	}
@@ -29881,6 +29893,64 @@ function setupInstrumentation(config) {
 }
 
 //#endregion
+//#region src/skills.ts
+const READ_TOOLS = /* @__PURE__ */ new Set(["read"]);
+const SHELL_TOOLS = /* @__PURE__ */ new Set(["shell", "bash"]);
+const PATH_FIELDS = [
+	"path",
+	"file_path",
+	"filePath",
+	"target_file",
+	"uri"
+];
+const COMMAND_FIELDS = ["command", "cmd"];
+const MAX_SKILL_NAME_LENGTH = 64;
+const SKILL_ROOT = "(?:skills-cursor|skills)";
+const SKILL_DOC = new RegExp(`(?:^|[\\\\/])${SKILL_ROOT}(?:[\\\\/][A-Za-z0-9._@+-]+)*[\\\\/]([A-Za-z0-9._@+-]+)[\\\\/]SKILL\\.md\\b`, "gi");
+const SKILL_SCRIPT = new RegExp(`(?:^|[\\\\/])${SKILL_ROOT}(?:[\\\\/][A-Za-z0-9._@+-]+)*[\\\\/]([A-Za-z0-9._@+-]+)[\\\\/]scripts[\\\\/]`, "gi");
+function collect(text) {
+	const names = [];
+	for (const pattern of [SKILL_DOC, SKILL_SCRIPT]) {
+		pattern.lastIndex = 0;
+		for (const match of text.matchAll(pattern)) {
+			const name = match[1]?.trim() ?? "";
+			if (name.length > 0 && name.length <= MAX_SKILL_NAME_LENGTH && !name.startsWith(".") && !names.includes(name)) names.push(name);
+		}
+	}
+	return names;
+}
+function fieldText(input, fields) {
+	if (typeof input === "string") return input;
+	if (input == null || typeof input !== "object") return void 0;
+	const record = input;
+	const parts = [];
+	for (const field of fields) {
+		const value = record[field];
+		if (typeof value === "string") parts.push(value);
+		else if (Array.isArray(value)) parts.push(value.map((part) => toText(part)).join(" "));
+	}
+	return parts.length > 0 ? parts.join("\n") : void 0;
+}
+/** Skills this call loaded by reading SKILL.md or running a file under scripts/. */
+function skillsForToolCall(call) {
+	const name = call.name.toLowerCase();
+	const fields = READ_TOOLS.has(name) ? PATH_FIELDS : SHELL_TOOLS.has(name) ? COMMAND_FIELDS : [];
+	if (fields.length === 0) return [];
+	const text = fieldText(call.input, fields);
+	return text ? collect(text) : [];
+}
+/** `cursor`, configured tags, then one `skill:<name>` per skill this turn loaded. */
+function traceTags(config, turn) {
+	const tags = ["cursor", ...config.tags.filter((tag) => tag !== "cursor")];
+	if (!config.skill_tags) return tags;
+	for (const generation of turn.generations) for (const call of generation.toolCalls) for (const name of skillsForToolCall(call)) {
+		const tag = `skill:${name}`;
+		if (!tags.includes(tag)) tags.push(tag);
+	}
+	return tags;
+}
+
+//#endregion
 //#region src/trace.ts
 init_esm$2();
 /**
@@ -29938,9 +30008,16 @@ function usageDetails(turn) {
 	if (usage.cacheWriteTokens > 0) details.cache_creation_input_tokens = usage.cacheWriteTokens;
 	return details;
 }
-function toolCallsOutput(calls, maxChars) {
-	return calls.map((call, i) => ({
-		id: call.toolUseId ?? `call-${i}`,
+/**
+* Message-level call id. Cursor's own `tool_use_id` is not unique (a Write and
+* its pre-flight Read share one) and can contain a newline, so the assistant
+* `tool_calls` and the `tool` messages link on a per-trace id instead. The raw
+* Cursor id stays in the tool observation's metadata.
+*/
+const callId = (generation, index) => `call_${generation}_${index}`;
+function toolCallsOutput(calls, generation, maxChars) {
+	return calls.map((call, j) => ({
+		id: callId(generation, j),
 		type: "function",
 		function: {
 			name: call.name,
@@ -29948,28 +30025,26 @@ function toolCallsOutput(calls, maxChars) {
 		}
 	}));
 }
-function generationOutput(gen, maxChars) {
+function generationOutput(gen, index, maxChars) {
 	const output = { role: "assistant" };
 	if (gen.text) output.content = clipText(gen.text, maxChars);
 	if (gen.thoughts.length > 0) output.thinking = gen.thoughts.map((t) => ({
 		type: "thinking",
 		content: clipText(t.text, maxChars)
 	}));
-	if (gen.toolCalls.length > 0) output.tool_calls = toolCallsOutput(gen.toolCalls, maxChars);
+	if (gen.toolCalls.length > 0) output.tool_calls = toolCallsOutput(gen.toolCalls, index, maxChars);
 	if (gen.otherBlocks.length > 0) output.blocks = clipDeep(gen.otherBlocks, maxChars);
 	return Object.keys(output).length > 1 ? output : void 0;
 }
-function toolResultsMessage(gen, maxChars) {
-	const results = gen.toolCalls.filter((c) => c.output !== void 0 || c.failure).map((c, i) => ({
-		tool_use_id: c.toolUseId ?? `call-${i}`,
-		name: c.name,
-		...c.output !== void 0 ? { output: clipDeep(c.output, maxChars) } : {},
-		...c.failure ? { error: c.failure.message ?? c.failure.failureType ?? "failed" } : {}
-	}));
-	return results.length > 0 ? {
+/** One `tool` message per call, the shape Langfuse renders as a tool result. */
+function toolMessages(gen, index, maxChars) {
+	return gen.toolCalls.flatMap((call, j) => call.output === void 0 && !call.failure ? [] : [{
 		role: "tool",
-		tool_results: results
-	} : void 0;
+		tool_call_id: callId(index, j),
+		name: toolName(call),
+		content: clipText(call.failure ? call.failure.message ?? call.failure.failureType ?? "failed" : toText(call.output), maxChars),
+		...call.failure ? { is_error: true } : {}
+	}]);
 }
 function toolStatus(call) {
 	if (call.failure) {
@@ -29989,7 +30064,32 @@ function toolStatus(call) {
 	};
 	return {};
 }
+/**
+* A turn's root span reflects only `turn.status` (did Cursor's own turn
+* lifecycle complete normally), so a tool call several levels down that
+* failed or timed out is invisible to anyone filtering on the trace's own
+* level — the root still reads `DEFAULT`/"completed". Surface the worst tool
+* outcome as root metadata so trace-level filters and dashboards can find it.
+*/
+function toolIssueCounts(turn) {
+	let errorCount = 0;
+	let warningCount = 0;
+	for (const gen of turn.generations) for (const call of gen.toolCalls) {
+		const level = toolStatus(call).level;
+		if (level === "ERROR") errorCount++;
+		else if (level === "WARNING") warningCount++;
+	}
+	return {
+		errorCount,
+		warningCount,
+		maxLevel: errorCount > 0 ? "ERROR" : warningCount > 0 ? "WARNING" : void 0
+	};
+}
 function toolName(call) {
+	const skill = skillsForToolCall(call)[0];
+	if (skill) return `skill:${skill}`;
+	const dynamic = call.name === "CallDynamicTool" && isRecord(call.input) ? call.input : void 0;
+	if (typeof dynamic?.toolName === "string") return `${asString(dynamic.namespace) ?? "dynamic"}.${dynamic.toolName}`;
 	if (call.mcpServer && !call.name.includes(call.mcpServer)) return `${call.mcpServer}.${call.name}`;
 	return call.name || "tool";
 }
@@ -30037,6 +30137,7 @@ async function emitTurn(turn, ctx) {
 			role: "assistant",
 			content: clipText(turn.finalText, maxChars)
 		} : void 0;
+		const toolIssues = toolIssueCounts(turn);
 		const root = start("root", TRACE_NAME, {
 			input: rootInput,
 			output: rootOutput,
@@ -30058,6 +30159,9 @@ async function emitTurn(turn, ctx) {
 				"cursor.transcript_path": turn.transcriptPath,
 				"cursor.transcript_used": turn.transcriptUsed,
 				"cursor.tool_call_count": turn.generations.reduce((n, g) => n + g.toolCalls.length, 0),
+				"cursor.tool_error_count": toolIssues.errorCount,
+				"cursor.tool_warning_count": toolIssues.warningCount,
+				"cursor.max_tool_level": toolIssues.maxLevel,
 				"cursor.hook_events": turn.eventCounts,
 				"cursor.timing_source": "hook-observed",
 				"langfuse.plugin.version": PLUGIN_VERSION,
@@ -30071,16 +30175,17 @@ async function emitTurn(turn, ctx) {
 			startTime: new Date(turn.startTime),
 			parentSpanContext: rootParent
 		});
-		const messages = [...turn.history];
-		if (turn.prompt) messages.push({
+		const baseMessages = [...turn.history];
+		if (turn.prompt) baseMessages.push({
 			role: "user",
 			content: clipText(turn.prompt, maxChars)
 		});
+		let pendingInput = baseMessages;
 		turn.generations.forEach((gen, i) => {
 			const isLast = i === turn.generations.length - 1;
-			const output = generationOutput(gen, maxChars);
+			const output = generationOutput(gen, i, maxChars);
 			const generation = start(`gen:${i}`, "LLM", {
-				input: messages.length > 0 ? [...messages] : void 0,
+				input: pendingInput.length > 0 ? pendingInput : void 0,
 				output,
 				model: turn.modelId ?? turn.model,
 				modelParameters: turn.modelParams,
@@ -30092,6 +30197,7 @@ async function emitTurn(turn, ctx) {
 				metadata: {
 					"cursor.generation_index": i,
 					"cursor.boundary_source": gen.source,
+					"cursor.input_scope": i === 0 ? "full-history" : "delta-since-previous-generation",
 					...turn.usage ? { "cursor.usage_scope": isLast ? "turn" : "reported-on-last-generation" } : {},
 					...gen.thoughts.length > 0 ? { "cursor.thinking_ms": gen.thoughts.reduce((n, t) => n + (t.durationMs ?? 0), 0) } : {}
 				}
@@ -30101,12 +30207,12 @@ async function emitTurn(turn, ctx) {
 				parentSpanContext: root.otelSpan.spanContext()
 			});
 			gen.toolCalls.forEach((call, j) => {
-				emitToolCall(call, generation, `gen:${i}:tool:${j}`, start, maxChars, gen.endTime);
+				emitToolCall(call, root, `gen:${i}:tool:${j}`, start, maxChars, gen.endTime);
 			});
 			generation.end(clampEnd(gen.startTime, gen.endTime));
-			if (output) messages.push(output);
-			const toolMessage = toolResultsMessage(gen, maxChars);
-			if (toolMessage) messages.push(toolMessage);
+			pendingInput = [];
+			if (output) pendingInput.push(output);
+			pendingInput.push(...toolMessages(gen, i, maxChars));
 		});
 		turn.orphanSubagents.forEach((run, k) => {
 			emitSubagent(run, root, `sub:orphan:${k}`, start, maxChars);
@@ -30135,7 +30241,7 @@ async function emitTurn(turn, ctx) {
 		await propagateAttributes({
 			sessionId: turn.conversationId,
 			traceName: TRACE_NAME,
-			tags: ["cursor", ...config.tags.filter((t) => t !== "cursor")],
+			tags: traceTags(config, turn),
 			...config.user_id || turn.userEmail ? { userId: config.user_id ?? turn.userEmail } : {},
 			...Object.keys(metadata).length > 0 ? { metadata } : {}
 		}, emit);

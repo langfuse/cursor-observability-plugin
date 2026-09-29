@@ -322,6 +322,7 @@ export async function runStatus(argv: string[]): Promise<number> {
     `  user          ${config.user_id ?? "(Cursor account email)"}`,
     `  environment   ${config.environment ?? "—"}`,
     `  tags          ${["cursor", ...config.tags].join(", ")}`,
+    `  skill tags    ${config.skill_tags ? "on" : "off"}`,
     `  state dir     ${config.state_dir}`,
   ];
 

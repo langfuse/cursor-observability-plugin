@@ -41,6 +41,9 @@ turns that log plus Cursor's own transcript into one Langfuse trace per turn:
 - **Sessions, users, tags**: turns are grouped by Cursor's conversation id, the
   user is the signed-in Cursor account (override with `LANGFUSE_USER_ID`), and
   every trace carries the `cursor` tag plus your own.
+- **Skills**: a Read or Shell call that opens a `SKILL.md`, or runs a file
+  under that skill's `scripts/`, tags the trace `skill:<name>` and names that
+  tool observation `skill:<name>`.
 
 Tracing covers the Cursor IDE agent, Cloud Agents (project hooks) and the
 Cursor CLI. See [Where hooks run](#where-hooks-run) for the differences.
@@ -151,25 +154,26 @@ open your Langfuse project to see the trace.
 
 ## Configuration options
 
-| Config key (`langfuse.json`)                  | Environment variable                                           | Default                      | Description                                                                                 |
-| --------------------------------------------- | -------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------- |
-| `publicKey` / `public_key`                    | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_CURSOR_PUBLIC_KEY`           | —                            | Langfuse public key (`pk-lf-...`). Required.                                                |
-| `secretKey` / `secret_key`                    | `LANGFUSE_SECRET_KEY` / `LANGFUSE_CURSOR_SECRET_KEY`           | —                            | Langfuse secret key (`sk-lf-...`). Required.                                                |
-| `baseUrl` / `base_url`                        | `LANGFUSE_BASE_URL` / `LANGFUSE_CURSOR_BASE_URL`               | `https://cloud.langfuse.com` | Langfuse host. US: `https://us.cloud.langfuse.com`, Japan: `https://jp.cloud.langfuse.com`. |
-| `enabled`                                     | `LANGFUSE_TRACING_ENABLED` / `LANGFUSE_CURSOR_ENABLED`         | `true`                       | Kill switch. `false` stops tracing without removing the keys.                               |
-| `environment`                                 | `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_CURSOR_ENVIRONMENT` | —                            | Langfuse environment label (e.g. `production`).                                             |
-| `release`                                     | `LANGFUSE_RELEASE` / `LANGFUSE_CURSOR_RELEASE`                 | —                            | Release label for the traces.                                                               |
-| `userId` / `user_id`                          | `LANGFUSE_USER_ID` / `LANGFUSE_CURSOR_USER_ID`                 | Cursor account email         | User id attached to every trace.                                                            |
-| `tags`                                        | `LANGFUSE_TAGS` / `LANGFUSE_CURSOR_TAGS`                       | —                            | Extra trace tags, JSON array or comma-separated. `cursor` is always added.                  |
-| `metadata`                                    | `LANGFUSE_CURSOR_METADATA`                                     | —                            | JSON object of trace metadata (string values, ≤200 characters).                             |
-| `traceSeed` / `trace_seed`                    | `LANGFUSE_CURSOR_TRACE_SEED`                                   | —                            | Deterministic trace ids, see [Deterministic trace ids](#deterministic-trace-ids).           |
-| `traceparent`                                 | `LANGFUSE_CURSOR_TRACEPARENT`                                  | —                            | W3C traceparent of an existing trace to attach turns to.                                    |
-| `maxChars` / `max_chars`                      | `LANGFUSE_CURSOR_MAX_CHARS`                                    | `20000`                      | Truncate captured strings to this many characters.                                          |
-| `captureToolOutput` / `capture_tool_output`   | `LANGFUSE_CURSOR_CAPTURE_TOOL_OUTPUT`                          | `true`                       | Store shell output, MCP results and tool outputs.                                           |
-| `captureFileContent` / `capture_file_content` | `LANGFUSE_CURSOR_CAPTURE_FILE_CONTENT`                         | `false`                      | Store the file contents Cursor passes to `beforeReadFile` (only their length by default).   |
-| `stateDir` / `state_dir`                      | `LANGFUSE_CURSOR_STATE_DIR`                                    | `~/.cursor/langfuse`         | Directory for the per-conversation event logs, state and `hook.log`.                        |
-| `debug`                                       | `LANGFUSE_CURSOR_DEBUG`                                        | `false`                      | Verbose logging to `<stateDir>/hook.log`.                                                   |
-| `failOnError` / `fail_on_error`               | `LANGFUSE_CURSOR_FAIL_ON_ERROR`                                | `false`                      | Report export errors as hook failures instead of failing open. Useful while testing.        |
+| Config key (`langfuse.json`)                  | Environment variable                                           | Default                      | Description                                                                                           |
+| --------------------------------------------- | -------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `publicKey` / `public_key`                    | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_CURSOR_PUBLIC_KEY`           | —                            | Langfuse public key (`pk-lf-...`). Required.                                                          |
+| `secretKey` / `secret_key`                    | `LANGFUSE_SECRET_KEY` / `LANGFUSE_CURSOR_SECRET_KEY`           | —                            | Langfuse secret key (`sk-lf-...`). Required.                                                          |
+| `baseUrl` / `base_url`                        | `LANGFUSE_BASE_URL` / `LANGFUSE_CURSOR_BASE_URL`               | `https://cloud.langfuse.com` | Langfuse host. US: `https://us.cloud.langfuse.com`, Japan: `https://jp.cloud.langfuse.com`.           |
+| `enabled`                                     | `LANGFUSE_TRACING_ENABLED` / `LANGFUSE_CURSOR_ENABLED`         | `true`                       | Kill switch. `false` stops tracing without removing the keys.                                         |
+| `environment`                                 | `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_CURSOR_ENVIRONMENT` | —                            | Langfuse environment label (e.g. `production`).                                                       |
+| `release`                                     | `LANGFUSE_RELEASE` / `LANGFUSE_CURSOR_RELEASE`                 | —                            | Release label for the traces.                                                                         |
+| `userId` / `user_id`                          | `LANGFUSE_USER_ID` / `LANGFUSE_CURSOR_USER_ID`                 | Cursor account email         | User id attached to every trace.                                                                      |
+| `tags`                                        | `LANGFUSE_TAGS` / `LANGFUSE_CURSOR_TAGS`                       | —                            | Extra trace tags, JSON array or comma-separated. `cursor` is always added.                            |
+| `skillTags` / `skill_tags`                    | `LANGFUSE_CURSOR_SKILL_TAGS`                                   | `true`                       | Tag traces `skill:<name>` when a turn loads a skill. The tool observation keeps that name either way. |
+| `metadata`                                    | `LANGFUSE_CURSOR_METADATA`                                     | —                            | JSON object of trace metadata (string values, ≤200 characters).                                       |
+| `traceSeed` / `trace_seed`                    | `LANGFUSE_CURSOR_TRACE_SEED`                                   | —                            | Deterministic trace ids, see [Deterministic trace ids](#deterministic-trace-ids).                     |
+| `traceparent`                                 | `LANGFUSE_CURSOR_TRACEPARENT`                                  | —                            | W3C traceparent of an existing trace to attach turns to.                                              |
+| `maxChars` / `max_chars`                      | `LANGFUSE_CURSOR_MAX_CHARS`                                    | `20000`                      | Truncate captured strings to this many characters.                                                    |
+| `captureToolOutput` / `capture_tool_output`   | `LANGFUSE_CURSOR_CAPTURE_TOOL_OUTPUT`                          | `true`                       | Store shell output, MCP results and tool outputs.                                                     |
+| `captureFileContent` / `capture_file_content` | `LANGFUSE_CURSOR_CAPTURE_FILE_CONTENT`                         | `false`                      | Store the file contents Cursor passes to `beforeReadFile` (only their length by default).             |
+| `stateDir` / `state_dir`                      | `LANGFUSE_CURSOR_STATE_DIR`                                    | `~/.cursor/langfuse`         | Directory for the per-conversation event logs, state and `hook.log`.                                  |
+| `debug`                                       | `LANGFUSE_CURSOR_DEBUG`                                        | `false`                      | Verbose logging to `<stateDir>/hook.log`.                                                             |
+| `failOnError` / `fail_on_error`               | `LANGFUSE_CURSOR_FAIL_ON_ERROR`                                | `false`                      | Report export errors as hook failures instead of failing open. Useful while testing.                  |
 
 ## Where hooks run
 

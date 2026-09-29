@@ -1,5 +1,5 @@
 import { r as asString, t as PLUGIN_VERSION } from "./version-ZGirXdLt.mjs";
-import { r as getConfig, t as ConversationStore } from "./state-78KtctR8.mjs";
+import { r as getConfig, t as ConversationStore } from "./state-UwhyEkyv.mjs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -247,6 +247,7 @@ async function runStatus(argv) {
 		`  user          ${config.user_id ?? "(Cursor account email)"}`,
 		`  environment   ${config.environment ?? "—"}`,
 		`  tags          ${["cursor", ...config.tags].join(", ")}`,
+		`  skill tags    ${config.skill_tags ? "on" : "off"}`,
 		`  state dir     ${config.state_dir}`
 	];
 	const sources = [path.join(home, ".cursor", "langfuse.json"), ...projectPath ? [path.join(path.resolve(projectPath), ".cursor", "langfuse.json")] : []].filter((file) => fs.existsSync(file));

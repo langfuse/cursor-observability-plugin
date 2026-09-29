@@ -14,6 +14,7 @@ export const baseConfig: Config = {
   secret_key: "sk-lf-test",
   base_url: "https://cloud.langfuse.com",
   tags: [],
+  skill_tags: true,
   metadata: {},
   max_chars: 20_000,
   capture_tool_output: true,

@@ -1,5 +1,5 @@
 import { l as infoLog, o as configureLogging, p as readStdin, r as asString, s as debugLog, t as PLUGIN_VERSION } from "./version-ZGirXdLt.mjs";
-import { n as disabledReason, r as getConfig, t as ConversationStore } from "./state-78KtctR8.mjs";
+import { n as disabledReason, r as getConfig, t as ConversationStore } from "./state-UwhyEkyv.mjs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -48,7 +48,7 @@ async function exportAndClose(ctx, state, closedBy, stopPayload) {
 	const turnNumber = state.openTurn?.turnNumber ?? state.turnsCompleted + 1;
 	await store.withLock(async () => {
 		try {
-			const { exportTurn } = await import("./export-DF4vM56-.mjs");
+			const { exportTurn } = await import("./export-DMo8KJcH.mjs");
 			const result = await exportTurn({
 				config,
 				store,
@@ -156,7 +156,7 @@ async function handle(payload) {
 async function runHook() {
 	const subcommand = process.argv[2];
 	if (subcommand === "setup" || subcommand === "status" || subcommand === "--help") {
-		const cli = await import("./cli-D00ylucz.mjs");
+		const cli = await import("./cli-CJtG58YU.mjs");
 		const args = process.argv.slice(3);
 		process.exitCode = subcommand === "status" ? await cli.runStatus(args) : await cli.runSetup(args);
 		return;

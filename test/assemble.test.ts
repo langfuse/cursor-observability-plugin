@@ -256,10 +256,17 @@ describe("assembleTurn with a transcript", () => {
     expect(turn.generations[0]!.toolCalls.map((c) => c.toolUseId)).toEqual(["t1"]);
     expect(turn.generations[1]!.toolCalls.map((c) => c.toolUseId)).toEqual(["t2"]);
     expect(turn.generations[2]!.toolCalls).toHaveLength(0);
-    for (let i = 1; i < turn.generations.length; i++) {
-      expect(turn.generations[i]!.startTime).toBe(turn.generations[i - 1]!.endTime);
-    }
     expect(turn.generations[2]!.endTime).toBe(turn.endTime);
+  });
+
+  it("ends a generation when its first tool starts and starts the next after the tools finish", () => {
+    const [gen0, gen1, gen2] = turn.generations;
+    const tool = (i: number) => turn.generations[i]!.toolCalls[0]!;
+    expect(gen0!.endTime).toBe(tool(0).startTime);
+    expect(gen1!.startTime).toBe(tool(0).endTime);
+    expect(gen1!.endTime).toBe(tool(1).startTime);
+    expect(gen2!.startTime).toBe(tool(1).endTime);
+    expect(gen2!.endTime - gen2!.startTime).toBeGreaterThan(0);
   });
 
   it("carries the earlier turns as conversation history", () => {
@@ -282,6 +289,81 @@ describe("nameMatchesTool", () => {
     expect(nameMatchesTool("mcp_notes_create_note", "create_note")).toBe(true);
     expect(nameMatchesTool("Shell", "shell")).toBe(true);
     expect(nameMatchesTool("Read", "Write")).toBe(false);
+  });
+
+  it("matches a transcript Glob to the Grep the tool hooks report for it", () => {
+    expect(nameMatchesTool("Grep", "Glob")).toBe(true);
+    expect(nameMatchesTool("Glob", "Grep")).toBe(true);
+  });
+});
+
+describe("Cursor hook quirks", () => {
+  it("keeps one thought when Cursor fires afterAgentThought twice, even interleaved", () => {
+    const events = [
+      ev("beforeSubmitPrompt", { prompt: "x" }, 0),
+      ev("afterAgentThought", { text: "A", duration_ms: 500 }, 10),
+      ev("afterAgentThought", { text: "B", duration_ms: 6 }, 12),
+      ev("afterAgentThought", { text: "A", duration_ms: 500 }, 14),
+      ev("afterAgentThought", { text: "B", duration_ms: 6 }, 15),
+      ev("stop", { status: "completed" }, 20),
+    ];
+    const thoughts = assemble(events).generations.flatMap((g) => g.thoughts);
+    expect(thoughts.map((t) => t.text)).toEqual(["A", "B"]);
+  });
+
+  it("pairs post hooks on id and tool name when two calls share a tool_use_id", () => {
+    const shared = "call-1\nfc_1";
+    const events = [
+      ev("beforeSubmitPrompt", { prompt: "x" }, 0),
+      ev(
+        "preToolUse",
+        { tool_name: "Read", tool_input: { file_path: "/w/new.ts" }, tool_use_id: shared },
+        10,
+      ),
+      ev(
+        "preToolUse",
+        { tool_name: "Write", tool_input: { path: "/w/new.ts" }, tool_use_id: shared },
+        20,
+      ),
+      ev("postToolUse", { tool_name: "Write", tool_use_id: shared, tool_output: "{}" }, 30),
+      ev(
+        "postToolUseFailure",
+        { tool_name: "Read", tool_use_id: shared, error_message: "ENOENT", failure_type: "error" },
+        40,
+      ),
+      ev("stop", { status: "completed" }, 50),
+    ];
+    const calls = assemble(events).generations.flatMap((g) => g.toolCalls);
+    const write = calls.find((c) => c.name === "Write")!;
+    const read = calls.find((c) => c.name === "Read")!;
+    expect(write.failure).toBeUndefined();
+    expect(read.failure?.message).toBe("ENOENT");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("closes repeated literal ids (Cursor's own ReadFile) in order", () => {
+    const events = [
+      ev("beforeSubmitPrompt", { prompt: "x" }, 0),
+      ev(
+        "preToolUse",
+        { tool_name: "Read", tool_input: { file_path: "/c/a.md" }, tool_use_id: "ReadFile" },
+        10,
+      ),
+      ev(
+        "preToolUse",
+        { tool_name: "Read", tool_input: { file_path: "/c/a.md" }, tool_use_id: "ReadFile" },
+        20,
+      ),
+      ev("postToolUse", { tool_name: "Read", tool_use_id: "ReadFile" }, 15),
+      ev("postToolUse", { tool_name: "Read", tool_use_id: "ReadFile" }, 25),
+      ev("stop", { status: "completed" }, 30),
+    ];
+    const calls = assemble(events).generations.flatMap((g) => g.toolCalls);
+    expect(calls.map((c) => [c.startTime - BASE_TS, c.endTime - BASE_TS])).toEqual([
+      [10, 15],
+      [20, 25],
+    ]);
+    expect(calls.every((c) => c.sources.includes("postToolUse"))).toBe(true);
   });
 });
 

@@ -23,6 +23,7 @@ describe("getConfig", () => {
     expect(config.max_chars).toBe(20_000);
     expect(config.capture_tool_output).toBe(true);
     expect(config.capture_file_content).toBe(false);
+    expect(config.skill_tags).toBe(true);
     expect(config.state_dir).toBe(path.join(home, ".cursor", "langfuse"));
     expect(disabledReason(config, {})).toContain(
       "missing LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY",
@@ -48,6 +49,7 @@ describe("getConfig", () => {
       baseUrl: "https://us.cloud.langfuse.com/",
       userId: "global-user",
       tags: "a,b",
+      skill_tags: true,
     });
     writeJson(project, ".cursor/langfuse.json", {
       public_key: "pk-project",
@@ -62,6 +64,7 @@ describe("getConfig", () => {
         LANGFUSE_CURSOR_SECRET_KEY: "sk-cursor-env",
         LANGFUSE_CURSOR_METADATA: '{"team":"platform","n":1}',
         LANGFUSE_CURSOR_TAGS: '["c"]',
+        LANGFUSE_CURSOR_SKILL_TAGS: "false",
       },
     });
     expect(config.public_key).toBe("pk-project");
@@ -71,6 +74,7 @@ describe("getConfig", () => {
     expect(config.environment).toBe("staging");
     expect(config.max_chars).toBe(500);
     expect(config.tags).toEqual(["c"]);
+    expect(config.skill_tags).toBe(false);
     expect(config.metadata).toEqual({ team: "platform", n: "1" });
   });
 

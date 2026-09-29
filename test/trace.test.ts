@@ -103,6 +103,9 @@ describe("emitTurn", () => {
     expect(root.attributes[LangfuseOtelSpanAttributes.TRACE_TAGS]).toEqual(["cursor"]);
     expect(attr(root, "langfuse.observation.input")).toContain("Add a README");
     expect(attr(root, "langfuse.observation.output")).toContain("Added README.md.");
+    expect(attr(root, "langfuse.observation.metadata.cursor.tool_error_count")).toBe("0");
+    expect(attr(root, "langfuse.observation.metadata.cursor.tool_warning_count")).toBe("0");
+    expect(attr(root, "langfuse.observation.metadata.cursor.max_tool_level")).toBe("");
     expect(ms(root.startTime)).toBe(BASE_TS);
     expect(ms(root.endTime)).toBe(BASE_TS + 700);
 
@@ -130,7 +133,7 @@ describe("emitTurn", () => {
 
     const tools = spans.filter((s) => obsType(s) === "tool");
     expect(tools.map((s) => s.name).sort()).toEqual(["Shell", "Write"]);
-    for (const tool of tools) expect(parentId(tool)).toBe(gen.spanContext().spanId);
+    for (const tool of tools) expect(parentId(tool)).toBe(root.spanContext().spanId);
     const shell = byName(spans, "Shell")[0]!;
     expect(JSON.parse(attr(shell, "langfuse.observation.output"))).toEqual({
       exitCode: 0,
@@ -180,9 +183,16 @@ describe("emitTurn", () => {
       total: 0,
     });
     expect(JSON.parse(attr(gens[2]!, "langfuse.observation.usage_details")).total).toBe(10_500);
-    const input = JSON.parse(attr(gens[1]!, "langfuse.observation.input"));
-    expect(input.map((m: { role: string }) => m.role)).toEqual(["user", "assistant", "tool"]);
-    expect(input[2].tool_results[0].output).toEqual({ exitCode: 0, stdout: "clean\n" });
+
+    // The first generation gets the full base history; each later generation
+    // gets only the delta added since the previous one (that generation's
+    // own output plus its tool results), not the whole growing transcript.
+    const input0 = JSON.parse(attr(gens[0]!, "langfuse.observation.input"));
+    expect(input0.map((m: { role: string }) => m.role)).toEqual(["user"]);
+    const input1 = JSON.parse(attr(gens[1]!, "langfuse.observation.input"));
+    expect(input1.map((m: { role: string }) => m.role)).toEqual(["assistant", "tool"]);
+    expect(input1[1].tool_call_id).toBe(input1[0].tool_calls[0].id);
+    expect(JSON.parse(input1[1].content)).toEqual({ exitCode: 0, stdout: "clean\n" });
   });
 
   it("flags failures and interrupted turns with levels", async () => {
@@ -288,6 +298,158 @@ describe("emitTurn", () => {
     expect(attr(subGens[0]!, "langfuse.observation.model.name")).toBe("claude-sonnet-4-6");
     const read = byName(spans, "Read")[0]!;
     expect(parentId(read)).toBe(subGens[0]!.spanContext().spanId);
+  });
+
+  it("tags a skill load and renames that tool observation", async () => {
+    const events = [
+      ev("beforeSubmitPrompt", { prompt: "land it" }, 0),
+      ev(
+        "preToolUse",
+        {
+          tool_name: "Read",
+          tool_input: { path: "/repo/.cursor/skills/shipping/land-it/SKILL.md" },
+          tool_use_id: "r1",
+        },
+        10,
+      ),
+      ev(
+        "postToolUse",
+        {
+          tool_name: "Read",
+          tool_input: { path: "/repo/.cursor/skills/shipping/land-it/SKILL.md" },
+          tool_use_id: "r1",
+          tool_output: "ok",
+          duration: 5,
+        },
+        20,
+      ),
+      ev("afterAgentResponse", { text: "done" }, 30),
+      ev("stop", { status: "completed" }, 40),
+    ];
+    const turn = assembleTurn({
+      conversationId: CONVERSATION,
+      events,
+      turnNumber: 1,
+      closedBy: "stop",
+      stopPayload: events[events.length - 1]!.payload as StopPayload,
+      now: BASE_TS + 50,
+      captureToolOutput: true,
+    });
+    await flushed(emitTurn(turn, { config: baseConfig, ids }));
+    const spans = exporter.getFinishedSpans();
+    expect(
+      byName(spans, "Cursor Turn")[0]!.attributes[LangfuseOtelSpanAttributes.TRACE_TAGS],
+    ).toEqual(["cursor", "skill:land-it"]);
+    expect(byName(spans, "skill:land-it")).toHaveLength(1);
+    expect(byName(spans, "Read")).toHaveLength(0);
+  });
+
+  it("links tool messages to unique call ids and names dynamic tools by target", async () => {
+    const shared = "call-1\nfc_1";
+    const events = [
+      ev("beforeSubmitPrompt", { prompt: "make it" }, 0),
+      ev(
+        "preToolUse",
+        { tool_name: "Read", tool_input: { file_path: "/w/n.ts" }, tool_use_id: shared },
+        10,
+      ),
+      ev(
+        "postToolUseFailure",
+        { tool_name: "Read", tool_use_id: shared, error_message: "ENOENT", failure_type: "error" },
+        15,
+      ),
+      ev(
+        "preToolUse",
+        { tool_name: "Write", tool_input: { path: "/w/n.ts" }, tool_use_id: shared },
+        20,
+      ),
+      ev(
+        "postToolUse",
+        { tool_name: "Write", tool_use_id: shared, tool_output: '{"ok":true}' },
+        30,
+      ),
+      ev("stop", { status: "completed" }, 60),
+    ];
+    const transcript = splitTranscriptTurns(
+      parseTranscriptRows(
+        transcriptRows("make it", [
+          {
+            text: "Writing.",
+            tools: [
+              { name: "Write", input: { path: "/w/n.ts" } },
+              { name: "CallDynamicTool", input: { namespace: "cursor", toolName: "WebFetch" } },
+            ],
+          },
+          { text: "Done." },
+        ]),
+      ),
+    );
+    const turn = assembleTurn({
+      conversationId: CONVERSATION,
+      events,
+      turnNumber: 1,
+      closedBy: "stop",
+      stopPayload: events[events.length - 1]!.payload as StopPayload,
+      transcriptTurns: transcript,
+      now: BASE_TS + 70,
+      captureToolOutput: true,
+    });
+    await flushed(emitTurn(turn, { config: baseConfig, ids }));
+    const spans = exporter.getFinishedSpans();
+    const gens = byName(spans, "LLM").sort((a, b) => ms(a.startTime) - ms(b.startTime));
+    const input = JSON.parse(attr(gens[1]!, "langfuse.observation.input"));
+    const calls = input.find((m: { tool_calls?: unknown[] }) => m.tool_calls).tool_calls;
+    const results = input.filter((m: { role: string }) => m.role === "tool");
+    const callIds = calls.map((c: { id: string }) => c.id);
+    expect(new Set(callIds).size).toBe(callIds.length);
+    expect(callIds.join("")).not.toContain("\n");
+    expect(results).toHaveLength(2);
+    for (const r of results) expect(callIds).toContain(r.tool_call_id);
+    expect(results.filter((r: { is_error?: boolean }) => r.is_error)).toHaveLength(1);
+    expect(byName(spans, "cursor.WebFetch")).toHaveLength(1);
+    expect(attr(byName(spans, "Write")[0]!, "langfuse.observation.level")).toBe("");
+    expect(attr(byName(spans, "Read")[0]!, "langfuse.observation.level")).toBe("ERROR");
+
+    // The turn itself closed normally (`stop: completed`), so the root span's
+    // own level stays unset — but the failed Read three levels down must
+    // still be discoverable from the root's metadata alone.
+    const root = byName(spans, "Cursor Turn")[0]!;
+    expect(attr(root, "langfuse.observation.level")).toBe("");
+    expect(attr(root, "langfuse.observation.metadata.cursor.tool_error_count")).toBe("1");
+    expect(attr(root, "langfuse.observation.metadata.cursor.tool_warning_count")).toBe("0");
+    expect(attr(root, "langfuse.observation.metadata.cursor.max_tool_level")).toBe("ERROR");
+  });
+
+  it("keeps the skill observation name when skill tags are off", async () => {
+    const events = [
+      ev("beforeSubmitPrompt", { prompt: "land it" }, 0),
+      ev(
+        "preToolUse",
+        {
+          tool_name: "Read",
+          tool_input: { path: "/repo/.cursor/skills/langfuse/SKILL.md" },
+          tool_use_id: "r1",
+        },
+        10,
+      ),
+      ev("postToolUse", { tool_name: "Read", tool_use_id: "r1", duration: 5 }, 20),
+      ev("stop", { status: "completed" }, 30),
+    ];
+    const turn = assembleTurn({
+      conversationId: CONVERSATION,
+      events,
+      turnNumber: 1,
+      closedBy: "stop",
+      stopPayload: events[events.length - 1]!.payload as StopPayload,
+      now: BASE_TS + 40,
+      captureToolOutput: true,
+    });
+    await flushed(emitTurn(turn, { config: { ...baseConfig, skill_tags: false }, ids }));
+    const spans = exporter.getFinishedSpans();
+    expect(
+      byName(spans, "Cursor Turn")[0]!.attributes[LangfuseOtelSpanAttributes.TRACE_TAGS],
+    ).toEqual(["cursor"]);
+    expect(byName(spans, "skill:langfuse")).toHaveLength(1);
   });
 
   it("attaches to an existing trace when a traceparent is configured", async () => {

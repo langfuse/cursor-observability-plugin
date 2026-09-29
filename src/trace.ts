@@ -10,12 +10,15 @@ import { TraceFlags, type SpanContext } from "@opentelemetry/api";
 
 import type { Config } from "./config.js";
 import { spanIdFor, type DeterministicIdGenerator } from "./ids.js";
+import { skillsForToolCall, traceTags } from "./skills.js";
 import { readTranscriptTurns } from "./transcript.js";
 import type { ChatMessage, Generation, SubagentRun, ToolCall, Turn } from "./types.js";
 import {
+  asString,
   clipDeep,
   clipText,
   debugLog,
+  isRecord,
   parseTraceparent,
   toText,
   traceIdFromSeed,
@@ -87,15 +90,27 @@ function usageDetails(turn: Turn): LangfuseGenerationAttributes["usageDetails"] 
   return details;
 }
 
-function toolCallsOutput(calls: ToolCall[], maxChars: number) {
-  return calls.map((call, i) => ({
-    id: call.toolUseId ?? `call-${i}`,
+/**
+ * Message-level call id. Cursor's own `tool_use_id` is not unique (a Write and
+ * its pre-flight Read share one) and can contain a newline, so the assistant
+ * `tool_calls` and the `tool` messages link on a per-trace id instead. The raw
+ * Cursor id stays in the tool observation's metadata.
+ */
+const callId = (generation: number, index: number): string => `call_${generation}_${index}`;
+
+function toolCallsOutput(calls: ToolCall[], generation: number, maxChars: number) {
+  return calls.map((call, j) => ({
+    id: callId(generation, j),
     type: "function",
     function: { name: call.name, arguments: clipText(toText(call.input), maxChars) },
   }));
 }
 
-function generationOutput(gen: Generation, maxChars: number): Record<string, unknown> | undefined {
+function generationOutput(
+  gen: Generation,
+  index: number,
+  maxChars: number,
+): Record<string, unknown> | undefined {
   const output: Record<string, unknown> = { role: "assistant" };
   if (gen.text) output.content = clipText(gen.text, maxChars);
   if (gen.thoughts.length > 0) {
@@ -105,21 +120,33 @@ function generationOutput(gen: Generation, maxChars: number): Record<string, unk
       content: clipText(t.text, maxChars),
     }));
   }
-  if (gen.toolCalls.length > 0) output.tool_calls = toolCallsOutput(gen.toolCalls, maxChars);
+  if (gen.toolCalls.length > 0) {
+    output.tool_calls = toolCallsOutput(gen.toolCalls, index, maxChars);
+  }
   if (gen.otherBlocks.length > 0) output.blocks = clipDeep(gen.otherBlocks, maxChars);
   return Object.keys(output).length > 1 ? output : undefined;
 }
 
-function toolResultsMessage(gen: Generation, maxChars: number): ChatMessage | undefined {
-  const results = gen.toolCalls
-    .filter((c) => c.output !== undefined || c.failure)
-    .map((c, i) => ({
-      tool_use_id: c.toolUseId ?? `call-${i}`,
-      name: c.name,
-      ...(c.output !== undefined ? { output: clipDeep(c.output, maxChars) } : {}),
-      ...(c.failure ? { error: c.failure.message ?? c.failure.failureType ?? "failed" } : {}),
-    }));
-  return results.length > 0 ? { role: "tool", tool_results: results } : undefined;
+/** One `tool` message per call, the shape Langfuse renders as a tool result. */
+function toolMessages(gen: Generation, index: number, maxChars: number): ChatMessage[] {
+  return gen.toolCalls.flatMap((call, j) =>
+    call.output === undefined && !call.failure
+      ? []
+      : [
+          {
+            role: "tool" as const,
+            tool_call_id: callId(index, j),
+            name: toolName(call),
+            content: clipText(
+              call.failure
+                ? (call.failure.message ?? call.failure.failureType ?? "failed")
+                : toText(call.output),
+              maxChars,
+            ),
+            ...(call.failure ? { is_error: true as const } : {}),
+          },
+        ],
+  );
 }
 
 function toolStatus(call: ToolCall): {
@@ -139,7 +166,42 @@ function toolStatus(call: ToolCall): {
   return {};
 }
 
+/**
+ * A turn's root span reflects only `turn.status` (did Cursor's own turn
+ * lifecycle complete normally), so a tool call several levels down that
+ * failed or timed out is invisible to anyone filtering on the trace's own
+ * level — the root still reads `DEFAULT`/"completed". Surface the worst tool
+ * outcome as root metadata so trace-level filters and dashboards can find it.
+ */
+function toolIssueCounts(turn: Turn): {
+  errorCount: number;
+  warningCount: number;
+  maxLevel?: "ERROR" | "WARNING";
+} {
+  let errorCount = 0;
+  let warningCount = 0;
+  for (const gen of turn.generations) {
+    for (const call of gen.toolCalls) {
+      const level = toolStatus(call).level;
+      if (level === "ERROR") errorCount++;
+      else if (level === "WARNING") warningCount++;
+    }
+  }
+  return {
+    errorCount,
+    warningCount,
+    maxLevel: errorCount > 0 ? "ERROR" : warningCount > 0 ? "WARNING" : undefined,
+  };
+}
+
 function toolName(call: ToolCall): string {
+  const skill = skillsForToolCall(call)[0];
+  if (skill) return `skill:${skill}`;
+  // Cursor never fires tool hooks for dynamic (MCP-style) tools; name them by target.
+  const dynamic = call.name === "CallDynamicTool" && isRecord(call.input) ? call.input : undefined;
+  if (typeof dynamic?.toolName === "string") {
+    return `${asString(dynamic.namespace) ?? "dynamic"}.${dynamic.toolName}`;
+  }
   if (call.mcpServer && !call.name.includes(call.mcpServer))
     return `${call.mcpServer}.${call.name}`;
   return call.name || "tool";
@@ -205,6 +267,8 @@ export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
       ? { role: "assistant", content: clipText(turn.finalText, maxChars) }
       : undefined;
 
+    const toolIssues = toolIssueCounts(turn);
+
     const root = start(
       "root",
       TRACE_NAME,
@@ -229,6 +293,12 @@ export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
           "cursor.transcript_path": turn.transcriptPath,
           "cursor.transcript_used": turn.transcriptUsed,
           "cursor.tool_call_count": turn.generations.reduce((n, g) => n + g.toolCalls.length, 0),
+          // A turn can close normally (`cursor.status: "completed"`) while a
+          // nested tool call errored or timed out; these three keys make
+          // that discoverable without opening every trace.
+          "cursor.tool_error_count": toolIssues.errorCount,
+          "cursor.tool_warning_count": toolIssues.warningCount,
+          "cursor.max_tool_level": toolIssues.maxLevel,
           "cursor.hook_events": turn.eventCounts,
           "cursor.timing_source": "hook-observed",
           "langfuse.plugin.version": PLUGIN_VERSION,
@@ -238,17 +308,28 @@ export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
       { asType: "agent", startTime: new Date(turn.startTime), parentSpanContext: rootParent },
     );
 
-    const messages: ChatMessage[] = [...turn.history];
-    if (turn.prompt) messages.push({ role: "user", content: clipText(turn.prompt, maxChars) });
+    const baseMessages: ChatMessage[] = [...turn.history];
+    if (turn.prompt) baseMessages.push({ role: "user", content: clipText(turn.prompt, maxChars) });
+
+    // Each generation's `input` is only the messages added since the previous
+    // generation (that generation's own output plus its tool results); the
+    // first generation gets the full base history. Re-sending the whole
+    // (ever-growing) conversation as `input` on every generation made
+    // ingestion payloads grow O(n^2) with the generation count — one 21
+    // -generation turn was observed shipping ~11 MB for that reason alone.
+    // The full context stays readable in the trace: it's just spread across
+    // each generation's own input/output and the tool observations beside it
+    // instead of being repeated on each one.
+    let pendingInput: ChatMessage[] = baseMessages;
 
     turn.generations.forEach((gen, i) => {
       const isLast = i === turn.generations.length - 1;
-      const output = generationOutput(gen, maxChars);
+      const output = generationOutput(gen, i, maxChars);
       const generation = start(
         `gen:${i}`,
         "LLM",
         {
-          input: messages.length > 0 ? [...messages] : undefined,
+          input: pendingInput.length > 0 ? pendingInput : undefined,
           output,
           model: turn.modelId ?? turn.model,
           modelParameters: turn.modelParams,
@@ -264,6 +345,7 @@ export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
           metadata: {
             "cursor.generation_index": i,
             "cursor.boundary_source": gen.source,
+            "cursor.input_scope": i === 0 ? "full-history" : "delta-since-previous-generation",
             ...(turn.usage
               ? { "cursor.usage_scope": isLast ? "turn" : "reported-on-last-generation" }
               : {}),
@@ -281,15 +363,17 @@ export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
         },
       );
 
+      // Tools are siblings of the generations under the turn, not children:
+      // the generation ends when the model asks for the tool.
       gen.toolCalls.forEach((call, j) => {
-        emitToolCall(call, generation, `gen:${i}:tool:${j}`, start, maxChars, gen.endTime);
+        emitToolCall(call, root, `gen:${i}:tool:${j}`, start, maxChars, gen.endTime);
       });
 
       generation.end(clampEnd(gen.startTime, gen.endTime));
 
-      if (output) messages.push(output as ChatMessage);
-      const toolMessage = toolResultsMessage(gen, maxChars);
-      if (toolMessage) messages.push(toolMessage);
+      pendingInput = [];
+      if (output) pendingInput.push(output as ChatMessage);
+      pendingInput.push(...toolMessages(gen, i, maxChars));
     });
 
     turn.orphanSubagents.forEach((run, k) => {
@@ -334,7 +418,7 @@ export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
       {
         sessionId: turn.conversationId,
         traceName: TRACE_NAME,
-        tags: ["cursor", ...config.tags.filter((t) => t !== "cursor")],
+        tags: traceTags(config, turn),
         ...(config.user_id || turn.userEmail ? { userId: config.user_id ?? turn.userEmail } : {}),
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
       },

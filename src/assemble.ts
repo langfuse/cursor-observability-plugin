@@ -97,6 +97,7 @@ function isMcpToolName(name: string): boolean {
 function normalizeToolName(name: string): string {
   return name
     .toLowerCase()
+    .replace(/^glob$/, "grep") // the tool hooks report Glob calls as Grep
     .replace(/^mcp[:_.-]+/, "")
     .replace(/[:.\-\s]+/g, "_");
 }
@@ -110,7 +111,15 @@ export function nameMatchesTool(callName: string, toolName: string): boolean {
 
 function buildToolCalls(events: LoggedEvent[], captureToolOutput: boolean): ToolCall[] {
   const calls: ToolCall[] = [];
-  const byId = new Map<string, ToolCall>();
+
+  // Cursor reuses tool_use_id (a Write and its pre-flight Read share one; its own
+  // command read is always the literal "ReadFile"), so pair on id + name, oldest first.
+  const pending = (id: string | undefined, name: string): ToolCall | undefined => {
+    if (!id) return undefined;
+    const same = calls.filter((c) => c.toolUseId === id);
+    const open = same.filter((c) => !c.sources.some((s) => s.startsWith("post")));
+    return open.find((c) => c.name === name) ?? open[0] ?? same[same.length - 1];
+  };
 
   const findOpenByName = (name: string | undefined): ToolCall | undefined =>
     calls.find(
@@ -129,7 +138,6 @@ function buildToolCalls(events: LoggedEvent[], captureToolOutput: boolean): Tool
       subagents: [],
     };
     calls.push(call);
-    if (call.toolUseId) byId.set(call.toolUseId, call);
   }
 
   const closeCall = (
@@ -138,8 +146,7 @@ function buildToolCalls(events: LoggedEvent[], captureToolOutput: boolean): Tool
   ): ToolCall => {
     const id = asString(e.payload.tool_use_id);
     const name = asString(e.payload.tool_name) ?? "tool";
-    let call = (id && byId.get(id)) || undefined;
-    if (!call) call = findOpenByName(name);
+    let call = pending(id, name) ?? findOpenByName(name);
     if (!call) {
       // post without pre (hook added mid-turn, or the pre hook failed): synthesize.
       const duration = asNumber(e.payload.duration) ?? 0;
@@ -154,7 +161,6 @@ function buildToolCalls(events: LoggedEvent[], captureToolOutput: boolean): Tool
         subagents: [],
       };
       calls.push(call);
-      if (id) byId.set(id, call);
     }
     call.sources.push(source);
     call.endTime = Math.max(e.ts, call.startTime);
@@ -480,25 +486,30 @@ function buildGenerationsFromTranscript(
     }
   });
 
-  // Boundaries: one afterAgentResponse per assistant row when the counts line up,
-  // otherwise the end of the last tool call in the row.
+  // Boundaries: a generation ends when the model asked for its first tool (or at
+  // its afterAgentResponse when the counts line up) and the next one starts once
+  // the previous tools finished, so tools sit beside generations, not inside.
   const alignedResponses = responses.length === rows.length;
+  let cursor = turnStart;
   for (let i = 0; i < generations.length; i++) {
     const gen = generations[i]!;
-    gen.startTime = i === 0 ? turnStart : generations[i - 1]!.endTime;
-    const toolEnd = gen.toolCalls.reduce((m, c) => Math.max(m, c.endTime), gen.startTime);
-    const responseEnd = alignedResponses ? responses[i]!.ts : undefined;
+    gen.startTime = cursor;
+    const timed = gen.toolCalls.filter((c) => !c.sources.includes("transcript"));
+    const firstTool = Math.min(...timed.map((c) => c.startTime), Number.POSITIVE_INFINITY);
+    const toolEnd = Math.max(gen.startTime, ...timed.map((c) => c.endTime));
+    const requested = Number.isFinite(firstTool) ? firstTool : gen.startTime;
     gen.endTime =
       i === generations.length - 1
         ? Math.max(turnEnd, toolEnd)
-        : Math.max(gen.startTime, responseEnd ?? toolEnd);
+        : Math.max(gen.startTime, alignedResponses ? responses[i]!.ts : requested);
     if (alignedResponses && !gen.text) gen.text = responses[i]!.text;
     for (const call of gen.toolCalls) {
       if (call.sources.includes("transcript")) {
-        call.startTime = gen.startTime;
-        call.endTime = gen.startTime;
+        call.startTime = gen.endTime;
+        call.endTime = gen.endTime;
       }
     }
+    cursor = Math.max(gen.endTime, toolEnd);
   }
 
   assignByWindow(unassigned, generations, (gen, call) => gen.toolCalls.push(call));
@@ -607,8 +618,16 @@ export function assembleTurn(input: AssembleInput): Turn {
   }
   const orphanSubagents = attachSubagents(calls, buildSubagents(events));
 
+  const seenThoughts = new Set<string>();
   const thoughts: Thought[] = eventsOf<AgentThoughtPayload>(events, "afterAgentThought")
     .filter((e) => typeof e.payload.text === "string" && e.payload.text.length > 0)
+    .filter((e) => {
+      // Cursor fires each thought twice (identical text and duration_ms), possibly interleaved.
+      const key = `${e.payload.duration_ms}:${e.payload.text}`;
+      if (seenThoughts.has(key)) return false;
+      seenThoughts.add(key);
+      return true;
+    })
     .map((e) => ({ text: e.payload.text!, durationMs: asNumber(e.payload.duration_ms), ts: e.ts }));
   const responses: Response[] = eventsOf<AgentResponsePayload>(events, "afterAgentResponse")
     .filter((e) => typeof e.payload.text === "string")
