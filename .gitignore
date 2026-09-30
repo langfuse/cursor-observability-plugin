@@ -1,0 +1,12 @@
+node_modules/
+*.log
+.DS_Store
+
+# Editing-tool scratch: Claude Code tracks its writes here and recreates the
+# directory whenever the repo is edited with it. Never part of the plugin.
+.claude/
+
+# Note: dist/ is intentionally committed. Cursor installs marketplace plugins
+# straight from the Git repository with no build or install step, so the hook
+# bundle has to be in the tree. `pnpm run lint` rebuilds it and CI verifies the
+# committed bundle is current.
