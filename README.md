@@ -149,6 +149,12 @@ Configuration is resolved as **defaults → `~/.cursor/langfuse.json` →
 variables, so you can scope credentials to Cursor without disturbing other
 Langfuse tooling.
 
+A project `baseUrl` is used only when that project supplies both keys and
+neither key is overridden by an environment variable. Otherwise the host comes
+from your user configuration or the EU default. An explicit environment host
+always wins. This prevents a cloned project's URL from receiving inherited
+credentials. Keep project credential files out of Git.
+
 Tracing is on as soon as both keys are present. Run a prompt in Cursor, then
 open your Langfuse project to see the trace.
 
@@ -170,7 +176,7 @@ open your Langfuse project to see the trace.
 | `traceparent`                                 | `LANGFUSE_CURSOR_TRACEPARENT`                                  | —                            | W3C traceparent of an existing trace to attach turns to.                                              |
 | `maxChars` / `max_chars`                      | `LANGFUSE_CURSOR_MAX_CHARS`                                    | `20000`                      | Truncate captured strings to this many characters.                                                    |
 | `captureToolOutput` / `capture_tool_output`   | `LANGFUSE_CURSOR_CAPTURE_TOOL_OUTPUT`                          | `true`                       | Store shell output, MCP results and tool outputs.                                                     |
-| `captureFileContent` / `capture_file_content` | `LANGFUSE_CURSOR_CAPTURE_FILE_CONTENT`                         | `false`                      | Store the file contents Cursor passes to `beforeReadFile` (only their length by default).             |
+| `captureFileContent` / `capture_file_content` | `LANGFUSE_CURSOR_CAPTURE_FILE_CONTENT`                         | `false`                      | Capture `beforeReadFile` contents and `Read`/`ReadFile` tool results (off by default).                |
 | `stateDir` / `state_dir`                      | `LANGFUSE_CURSOR_STATE_DIR`                                    | `~/.cursor/langfuse`         | Directory for the per-conversation event logs, state and `hook.log`.                                  |
 | `debug`                                       | `LANGFUSE_CURSOR_DEBUG`                                        | `false`                      | Verbose logging to `<stateDir>/hook.log`.                                                             |
 | `failOnError` / `fail_on_error`               | `LANGFUSE_CURSOR_FAIL_ON_ERROR`                                | `false`                      | Report export errors as hook failures instead of failing open. Useful while testing.                  |
@@ -265,10 +271,18 @@ it uploads.
 When enabled, the plugin uploads prompts, assistant messages, thinking text,
 tool inputs and outputs (shell output, MCP results, file edits), subagent
 tasks and summaries, model names and parameters, token usage, workspace paths
-and the Cursor account email. File contents that Cursor reads are not stored
-unless `captureFileContent` is on; tool outputs can be switched off with
-`captureToolOutput`. Your Langfuse keys are masked from every payload before
-upload. Do not enable tracing for work you do not want stored in Langfuse.
+and the Cursor account email. `captureFileContent=false` removes the content
+from `beforeReadFile` and results from `Read`/`ReadFile` tool calls before local
+storage and export. `captureToolOutput=false` removes generic tool results,
+shell output and MCP results before local storage and export; Read results
+require both options to be enabled. The current settings also apply when
+exporting events recorded by an older version.
+
+These switches do not remove file text quoted in prompts, assistant messages,
+edit inputs/diffs, or shell/MCP results when tool-output capture is enabled.
+They are capture controls, not a general content filter. Your Langfuse keys
+are masked in exported content, metadata and error status messages. Do not
+enable tracing for work you do not want stored in Langfuse.
 
 ## How it works
 
@@ -321,4 +335,6 @@ result; CI fails when the bundle is stale.
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE). Bundled dependency licenses and attribution are generated in
+[`dist/THIRD_PARTY_NOTICES.txt`](./dist/THIRD_PARTY_NOTICES.txt) on every build
+and included in both Git and npm installations.

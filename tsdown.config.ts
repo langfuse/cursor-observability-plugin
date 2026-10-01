@@ -1,5 +1,7 @@
 import { defineConfig } from "tsdown";
 
+import { thirdPartyNotices } from "./scripts/third-party-notices.ts";
+
 // The hook runs as `node dist/index.mjs` straight from the plugin checkout or
 // the npm tarball, with no install step, so every runtime dependency (Langfuse
 // SDK, OpenTelemetry) is bundled. Only Node.js built-ins stay external.
@@ -10,6 +12,7 @@ import { defineConfig } from "tsdown";
 // only the `stop` / `sessionEnd` paths resolve.
 export default defineConfig({
   entry: ["src/index.ts"],
+  plugins: [thirdPartyNotices()],
   outDir: "dist",
   format: ["esm"],
   platform: "node",

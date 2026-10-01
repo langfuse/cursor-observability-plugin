@@ -1,5 +1,7 @@
+#!/usr/bin/env node
 import { l as infoLog, o as configureLogging, p as readStdin, r as asString, s as debugLog, t as PLUGIN_VERSION } from "./version-ZGirXdLt.mjs";
-import { n as disabledReason, r as getConfig, t as ConversationStore } from "./state-UwhyEkyv.mjs";
+import { n as disabledReason, r as getConfig, t as ConversationStore } from "./state-BCqq8k6q.mjs";
+import { t as applyCapturePolicy } from "./privacy-BohI-nng.mjs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -48,7 +50,7 @@ async function exportAndClose(ctx, state, closedBy, stopPayload) {
 	const turnNumber = state.openTurn?.turnNumber ?? state.turnsCompleted + 1;
 	await store.withLock(async () => {
 		try {
-			const { exportTurn } = await import("./export-DMo8KJcH.mjs");
+			const { exportTurn } = await import("./export-ClA3tmiD.mjs");
 			const result = await exportTurn({
 				config,
 				store,
@@ -79,6 +81,7 @@ async function handle(payload) {
 	const hook = payload.hook_event_name;
 	const workspaceRoot = Array.isArray(payload.workspace_roots) ? asString(payload.workspace_roots[0]) : void 0;
 	const config = getConfig({ workspaceRoot });
+	payload = applyCapturePolicy(payload, config);
 	configureLogging({
 		debug: config.debug,
 		logFile: path.join(config.state_dir, "hook.log")
@@ -139,15 +142,6 @@ async function handle(payload) {
 			if (state.openTurn || store.readEvents().length > 1) await exportAndClose(ctx, state, "sessionEnd");
 			else store.clearEvents();
 			return;
-		case "beforeReadFile":
-			if (!config.capture_file_content && typeof payload.content === "string") {
-				const { content, ...rest } = payload;
-				store.appendEvent({
-					...rest,
-					content_length: content.length
-				}, config.max_chars, now);
-			} else store.appendEvent(payload, config.max_chars, now);
-			return;
 		default:
 			store.appendEvent(payload, config.max_chars, now);
 			return;
@@ -156,7 +150,7 @@ async function handle(payload) {
 async function runHook() {
 	const subcommand = process.argv[2];
 	if (subcommand === "setup" || subcommand === "status" || subcommand === "--help") {
-		const cli = await import("./cli-CJtG58YU.mjs");
+		const cli = await import("./cli-CCufOVGz.mjs");
 		const args = process.argv.slice(3);
 		process.exitCode = subcommand === "status" ? await cli.runStatus(args) : await cli.runSetup(args);
 		return;

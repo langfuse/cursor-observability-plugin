@@ -1,4 +1,5 @@
 import { _ as tryParseJson, a as clipText, c as guessTranscriptPath, d as modelParamsToRecord, f as parseTraceparent, g as traceIdFromSeed, h as toText, i as clipDeep, m as spanIdFromSeed, n as asNumber, r as asString, s as debugLog, t as PLUGIN_VERSION, u as isRecord } from "./version-ZGirXdLt.mjs";
+import { n as createSecretMask, t as applyCapturePolicy } from "./privacy-BohI-nng.mjs";
 import { createRequire } from "node:module";
 import * as fs$1 from "node:fs";
 import * as fs from "fs";
@@ -22417,18 +22418,18 @@ var require_getMachineId = /* @__PURE__ */ __commonJSMin(((exports) => {
 	async function getMachineId() {
 		if (!getMachineIdImpl) switch (process$1.platform) {
 			case "darwin":
-				getMachineIdImpl = (await import("./getMachineId-darwin-BP-v_aex.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-darwin-BZ56p4cI.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "linux":
-				getMachineIdImpl = (await import("./getMachineId-linux-CT-k9GyP.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-linux-EU52PRcu.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "freebsd":
-				getMachineIdImpl = (await import("./getMachineId-bsd-OtBc7uIS.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-bsd-C3dmanle.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "win32":
-				getMachineIdImpl = (await import("./getMachineId-win-PO5vsR5C.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-win-dSHQa_GJ.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
-			default: getMachineIdImpl = (await import("./getMachineId-unsupported-i5z_58H2.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+			default: getMachineIdImpl = (await import("./getMachineId-unsupported-Dsuikc_w.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 		}
 		return getMachineIdImpl();
 	}
@@ -29821,25 +29822,6 @@ function spanIdFor(traceId, label) {
 
 //#endregion
 //#region src/instrumentation.ts
-function createSecretMask(config) {
-	const literals = [config.secret_key, config.public_key].filter((k) => typeof k === "string" && k.length >= 8);
-	const pattern = /\b(?:sk|pk)-lf-[0-9a-f-]{8,}\b/gi;
-	const redact = (value) => {
-		if (typeof value === "string") {
-			let out = value;
-			for (const literal of literals) out = out.split(literal).join("[redacted-langfuse-key]");
-			return out.replace(pattern, "[redacted-langfuse-key]");
-		}
-		if (Array.isArray(value)) return value.map(redact);
-		if (value && typeof value === "object") {
-			const out = {};
-			for (const [k, v] of Object.entries(value)) out[k] = redact(v);
-			return out;
-		}
-		return value;
-	};
-	return ({ data }) => redact(data);
-}
 /**
 * Resource attributes for the exported spans.
 *
@@ -30111,11 +30093,12 @@ function subagentStatus(run) {
 async function emitTurn(turn, ctx) {
 	const { config, ids } = ctx;
 	const maxChars = config.max_chars;
+	const mask = createSecretMask(config);
 	const traceId = traceIdForTurn(config, turn.conversationId, turn.turnNumber);
 	const parent = parseTraceparent(config.traceparent);
 	const start = (label, name, attributes, options) => {
 		ids.queueSpanId(spanIdFor(traceId, label));
-		return startObservation(name, attributes, options);
+		return startObservation(mask({ data: name }), mask({ data: attributes }), options);
 	};
 	const emit = async () => {
 		const rootParent = parent ? {
@@ -30239,10 +30222,10 @@ async function emitTurn(turn, ctx) {
 		const metadata = {};
 		for (const [k, v] of Object.entries(config.metadata)) if (v.length <= 200) metadata[k] = v;
 		await propagateAttributes({
-			sessionId: turn.conversationId,
+			sessionId: mask({ data: turn.conversationId }),
 			traceName: TRACE_NAME,
-			tags: traceTags(config, turn),
-			...config.user_id || turn.userEmail ? { userId: config.user_id ?? turn.userEmail } : {},
+			tags: traceTags(config, turn).map((tag) => mask({ data: tag })),
+			...config.user_id || turn.userEmail ? { userId: mask({ data: config.user_id ?? turn.userEmail }) } : {},
 			...Object.keys(metadata).length > 0 ? { metadata } : {}
 		}, emit);
 	}
@@ -30372,7 +30355,10 @@ function emitSubagent(run, parent, label, start, maxChars) {
 //#region src/export.ts
 async function exportTurn(params) {
 	const { config, store, state } = params;
-	const events = store.readEvents();
+	const events = store.readEvents().map((event) => ({
+		...event,
+		payload: applyCapturePolicy(event.payload, config)
+	}));
 	if (events.length === 0 && params.closedBy !== "stop") {
 		debugLog("nothing to export: no events for the open turn");
 		return { eventCount: 0 };

@@ -102,3 +102,58 @@ describe("getConfig", () => {
     expect(config.enabled).toBe(false);
   });
 });
+
+it("does not send inherited keys to a project-controlled host", () => {
+  const home = makeTmpDir();
+  const project = makeTmpDir();
+  writeJson(home, ".cursor/langfuse.json", {
+    publicKey: "pk-global",
+    secretKey: "sk-global",
+    baseUrl: "https://trusted.example",
+  });
+  writeJson(project, ".cursor/langfuse.json", { baseUrl: "https://untrusted.example" });
+  expect(getConfig({ home, workspaceRoot: project, env: {} }).base_url).toBe(
+    "https://trusted.example",
+  );
+  expect(
+    getConfig({
+      home: makeTmpDir(),
+      workspaceRoot: project,
+      env: { LANGFUSE_PUBLIC_KEY: "pk-env", LANGFUSE_SECRET_KEY: "sk-env" },
+    }).base_url,
+  ).toBe("https://cloud.langfuse.com");
+});
+
+it("uses a project's destination only with its complete pair, and permits explicit environment routing", () => {
+  const home = makeTmpDir();
+  const project = makeTmpDir();
+  writeJson(home, ".cursor/langfuse.json", {
+    publicKey: "pk-global",
+    secretKey: "sk-global",
+    baseUrl: "https://trusted.example",
+  });
+  writeJson(project, ".cursor/langfuse.json", {
+    publicKey: "pk-project",
+    secretKey: "sk-project",
+    baseUrl: "https://project.example/",
+  });
+  expect(getConfig({ home, workspaceRoot: project, env: {} })).toMatchObject({
+    public_key: "pk-project",
+    secret_key: "sk-project",
+    base_url: "https://project.example",
+  });
+  expect(
+    getConfig({ home, workspaceRoot: project, env: { LANGFUSE_SECRET_KEY: "sk-env" } }).base_url,
+  ).toBe("https://trusted.example");
+  expect(
+    getConfig({
+      home,
+      workspaceRoot: project,
+      env: { LANGFUSE_SECRET_KEY: "sk-env", LANGFUSE_BASE_URL: "https://explicit.example" },
+    }).base_url,
+  ).toBe("https://explicit.example");
+  writeJson(project, ".cursor/langfuse.json", { publicKey: "pk-project", secretKey: "sk-project" });
+  expect(getConfig({ home, workspaceRoot: project, env: {} }).base_url).toBe(
+    "https://cloud.langfuse.com",
+  );
+});
