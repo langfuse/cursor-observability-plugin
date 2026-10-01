@@ -1,5 +1,5 @@
 import { r as asString, t as PLUGIN_VERSION } from "./version-ZGirXdLt.mjs";
-import { r as getConfig, t as ConversationStore } from "./state-UwhyEkyv.mjs";
+import { r as getConfig, t as ConversationStore } from "./state-BCqq8k6q.mjs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";

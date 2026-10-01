@@ -5,34 +5,13 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 
 import type { Config } from "./config.js";
 import { DeterministicIdGenerator } from "./ids.js";
+import { createSecretMask } from "./privacy.js";
 import { PLUGIN_VERSION } from "./version.js";
 
 export type Instrumentation = {
   ids: DeterministicIdGenerator;
   shutdown: () => Promise<void>;
 };
-
-export function createSecretMask(config: Pick<Config, "public_key" | "secret_key">) {
-  const literals = [config.secret_key, config.public_key].filter(
-    (k): k is string => typeof k === "string" && k.length >= 8,
-  );
-  const pattern = /\b(?:sk|pk)-lf-[0-9a-f-]{8,}\b/gi;
-  const redact = (value: unknown): unknown => {
-    if (typeof value === "string") {
-      let out = value;
-      for (const literal of literals) out = out.split(literal).join("[redacted-langfuse-key]");
-      return out.replace(pattern, "[redacted-langfuse-key]");
-    }
-    if (Array.isArray(value)) return value.map(redact);
-    if (value && typeof value === "object") {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redact(v);
-      return out;
-    }
-    return value;
-  };
-  return ({ data }: { data: unknown }) => redact(data);
-}
 
 /**
  * Resource attributes for the exported spans.

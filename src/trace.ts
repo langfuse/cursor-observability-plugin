@@ -10,6 +10,7 @@ import { TraceFlags, type SpanContext } from "@opentelemetry/api";
 
 import type { Config } from "./config.js";
 import { spanIdFor, type DeterministicIdGenerator } from "./ids.js";
+import { createSecretMask } from "./privacy.js";
 import { skillsForToolCall, traceTags } from "./skills.js";
 import { readTranscriptTurns } from "./transcript.js";
 import type { ChatMessage, Generation, SubagentRun, ToolCall, Turn } from "./types.js";
@@ -223,6 +224,7 @@ function subagentStatus(run: SubagentRun): { level?: "WARNING" | "ERROR"; status
 export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
   const { config, ids } = ctx;
   const maxChars = config.max_chars;
+  const mask = createSecretMask(config);
   const traceId = traceIdForTurn(config, turn.conversationId, turn.turnNumber);
   const parent = parseTraceparent(config.traceparent);
 
@@ -235,7 +237,11 @@ export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
         a: LangfuseObservationAttributes,
         o: StartObservationOpts,
       ) => LangfuseObservation
-    )(name, attributes, options);
+    )(
+      mask({ data: name }) as string,
+      mask({ data: attributes }) as LangfuseObservationAttributes,
+      options,
+    );
   };
 
   const emit = async () => {
@@ -416,10 +422,12 @@ export async function emitTurn(turn: Turn, ctx: EmitContext): Promise<string> {
     }
     await propagateAttributes(
       {
-        sessionId: turn.conversationId,
+        sessionId: mask({ data: turn.conversationId }) as string,
         traceName: TRACE_NAME,
-        tags: traceTags(config, turn),
-        ...(config.user_id || turn.userEmail ? { userId: config.user_id ?? turn.userEmail } : {}),
+        tags: traceTags(config, turn).map((tag) => mask({ data: tag }) as string),
+        ...(config.user_id || turn.userEmail
+          ? { userId: mask({ data: config.user_id ?? turn.userEmail }) as string }
+          : {}),
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
       },
       emit,

@@ -1,6 +1,7 @@
 import { assembleTurn } from "./assemble.js";
 import type { Config } from "./config.js";
 import { setupInstrumentation } from "./instrumentation.js";
+import { applyCapturePolicy } from "./privacy.js";
 import type { ConversationState, ConversationStore } from "./state.js";
 import { emitTurn } from "./trace.js";
 import { readTranscriptTurnsSettled } from "./transcript.js";
@@ -29,7 +30,11 @@ export type ExportResult = { traceId?: string; eventCount: number; turn?: Turn }
 
 export async function exportTurn(params: ExportParams): Promise<ExportResult> {
   const { config, store, state } = params;
-  const events = store.readEvents();
+  // Apply the current policy to events recorded before a setting changed too.
+  const events = store.readEvents().map((event) => ({
+    ...event,
+    payload: applyCapturePolicy(event.payload, config),
+  }));
   if (events.length === 0 && params.closedBy !== "stop") {
     debugLog("nothing to export: no events for the open turn");
     return { eventCount: 0 };

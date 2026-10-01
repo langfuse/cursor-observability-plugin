@@ -124,13 +124,15 @@ function getConfig(options = {}) {
 		...projectConfig,
 		...envConfig
 	};
+	const usesProjectKeys = projectConfig.public_key && projectConfig.secret_key && !envConfig.public_key && !envConfig.secret_key;
+	const baseUrl = envConfig.base_url ?? (usesProjectKeys ? projectConfig.base_url : globalConfig.base_url) ?? DEFAULT_BASE_URL;
 	const hasKeys = Boolean(merged.public_key && merged.secret_key);
 	const stateDir = expandHome(merged.state_dir ?? path.join("~", ".cursor", "langfuse"), home);
 	return {
 		enabled: (merged.enabled ?? true) && hasKeys,
 		public_key: merged.public_key,
 		secret_key: merged.secret_key,
-		base_url: (merged.base_url ?? DEFAULT_BASE_URL).replace(/\/+$/, ""),
+		base_url: baseUrl.replace(/\/+$/, ""),
 		environment: merged.environment,
 		release: merged.release,
 		user_id: merged.user_id,

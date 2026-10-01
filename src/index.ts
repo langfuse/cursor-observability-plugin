@@ -1,7 +1,9 @@
+#!/usr/bin/env node
 import * as os from "node:os";
 import * as path from "node:path";
 
 import { disabledReason, getConfig, type Config } from "./config.js";
+import { applyCapturePolicy } from "./privacy.js";
 import { ConversationStore, type ConversationState } from "./state.js";
 import type { HookBase, SessionStartPayload, StopPayload, Turn } from "./types.js";
 import { asString, configureLogging, debugLog, infoLog, readStdin } from "./utils.js";
@@ -106,6 +108,7 @@ async function handle(payload: HookBase): Promise<void> {
     ? asString(payload.workspace_roots[0])
     : undefined;
   const config = getConfig({ workspaceRoot });
+  payload = applyCapturePolicy(payload, config);
   configureLogging({ debug: config.debug, logFile: path.join(config.state_dir, "hook.log") });
   failOnError = config.fail_on_error;
 
@@ -173,16 +176,6 @@ async function handle(payload: HookBase): Promise<void> {
         await exportAndClose(ctx, state, "sessionEnd");
       } else {
         store.clearEvents();
-      }
-      return;
-    }
-
-    case "beforeReadFile": {
-      if (!config.capture_file_content && typeof payload.content === "string") {
-        const { content, ...rest } = payload;
-        store.appendEvent({ ...rest, content_length: content.length }, config.max_chars, now);
-      } else {
-        store.appendEvent(payload, config.max_chars, now);
       }
       return;
     }
