@@ -208,24 +208,28 @@ export async function runSetup(argv: string[]): Promise<number> {
     (asString(args.get("public-key")) ?? process.env.LANGFUSE_PUBLIC_KEY) || undefined;
   const secretKey =
     (asString(args.get("secret-key")) ?? process.env.LANGFUSE_SECRET_KEY) || undefined;
-  const baseUrl = (
-    asString(args.get("base-url")) ??
-    process.env.LANGFUSE_BASE_URL ??
-    "https://cloud.langfuse.com"
-  ).replace(/\/+$/, "");
+  const baseUrl = (asString(args.get("base-url")) ?? process.env.LANGFUSE_BASE_URL)?.replace(
+    /\/+$/,
+    "",
+  );
   const environment = asString(args.get("environment")) ?? process.env.LANGFUSE_TRACING_ENVIRONMENT;
 
-  if (!publicKey || !secretKey) {
+  if (!publicKey || !secretKey || !baseUrl) {
     process.stdout.write(
       [
         "Langfuse setup for Cursor",
         "",
-        "Pass your project keys, or export LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY first:",
+        "Pass your project keys and the host for your region, or export LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, and LANGFUSE_BASE_URL first:",
         "",
-        "  langfuse-cursor-hook setup --public-key pk-lf-… --secret-key sk-lf-…",
+        "  langfuse-cursor-hook setup --public-key pk-lf-… --secret-key sk-lf-… --base-url <region host>",
         "",
         "Options:",
-        "  --base-url <url>        Langfuse host (default https://cloud.langfuse.com, the EU region)",
+        "  --base-url <url>        Langfuse host for your region. Required.",
+        "                          Europe: https://cloud.langfuse.com",
+        "                          US: https://us.cloud.langfuse.com",
+        "                          US HIPAA: https://hipaa.cloud.langfuse.com",
+        "                          Japan: https://jp.cloud.langfuse.com",
+        "                          Self-hosted: your Langfuse v4 instance URL (https://langfuse.com/self-hosting)",
         "  --environment <name>    Langfuse environment label for the traces",
         "  --project <path>        Write the keys into <path>/.cursor/langfuse.json instead of ~/.cursor",
         "  --hooks                 Also register the hooks in hooks.json (use this when the plugin",
@@ -316,7 +320,7 @@ export async function runStatus(argv: string[]): Promise<number> {
     `  bundle        ${path.join(pluginRoot(), "dist", "index.mjs")}`,
     `  node          ${process.version} (${process.execPath})`,
     `  tracing       ${config.enabled ? "on" : "off"}`,
-    `  host          ${config.base_url}`,
+    `  host          ${config.base_url || "—"}`,
     `  public key    ${mask(config.public_key)}`,
     `  secret key    ${config.secret_key ? "set" : "—"}`,
     `  user          ${config.user_id ?? "(Cursor account email)"}`,

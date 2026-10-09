@@ -1,4 +1,4 @@
-import { _ as tryParseJson, a as clipText, c as guessTranscriptPath, d as modelParamsToRecord, f as parseTraceparent, g as traceIdFromSeed, h as toText, i as clipDeep, m as spanIdFromSeed, n as asNumber, r as asString, s as debugLog, t as PLUGIN_VERSION, u as isRecord } from "./version-ZGirXdLt.mjs";
+import { _ as tryParseJson, a as clipText, c as guessTranscriptPath, d as modelParamsToRecord, f as parseTraceparent, g as traceIdFromSeed, h as toText, i as clipDeep, m as spanIdFromSeed, n as asNumber, r as asString, s as debugLog, t as PLUGIN_VERSION, u as isRecord } from "./version-B2EdcJjP.mjs";
 import { n as createSecretMask, t as applyCapturePolicy } from "./privacy-BohI-nng.mjs";
 import { createRequire } from "node:module";
 import * as fs$1 from "node:fs";
@@ -22418,18 +22418,18 @@ var require_getMachineId = /* @__PURE__ */ __commonJSMin(((exports) => {
 	async function getMachineId() {
 		if (!getMachineIdImpl) switch (process$1.platform) {
 			case "darwin":
-				getMachineIdImpl = (await import("./getMachineId-darwin-BZ56p4cI.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-darwin-C1_rrTYb.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "linux":
-				getMachineIdImpl = (await import("./getMachineId-linux-EU52PRcu.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-linux-Bq-nvZqe.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "freebsd":
-				getMachineIdImpl = (await import("./getMachineId-bsd-C3dmanle.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-bsd-DsxAPNIB.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
 			case "win32":
-				getMachineIdImpl = (await import("./getMachineId-win-dSHQa_GJ.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+				getMachineIdImpl = (await import("./getMachineId-win-DMVzbVRQ.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 				break;
-			default: getMachineIdImpl = (await import("./getMachineId-unsupported-Dsuikc_w.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
+			default: getMachineIdImpl = (await import("./getMachineId-unsupported-D33tvGXg.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))).getMachineId;
 		}
 		return getMachineIdImpl();
 	}

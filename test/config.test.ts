@@ -15,29 +15,45 @@ function writeJson(dir: string, rel: string, value: unknown): void {
 }
 
 describe("getConfig", () => {
-  it("is disabled without keys and defaults to the EU cloud", () => {
+  it("is disabled without keys and does not assume a region", () => {
     const home = makeTmpDir();
     const config = getConfig({ home, workspaceRoot: makeTmpDir(), env: {} });
     expect(config.enabled).toBe(false);
-    expect(config.base_url).toBe("https://cloud.langfuse.com");
+    expect(config.base_url).toBe("");
     expect(config.max_chars).toBe(20_000);
     expect(config.capture_tool_output).toBe(true);
     expect(config.capture_file_content).toBe(false);
     expect(config.skill_tags).toBe(true);
     expect(config.state_dir).toBe(path.join(home, ".cursor", "langfuse"));
     expect(disabledReason(config, {})).toContain(
-      "missing LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY",
+      "missing LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL",
     );
   });
 
-  it("enables tracing when both keys are present in the environment", () => {
+  it("enables tracing when both keys and a host are present in the environment", () => {
+    const config = getConfig({
+      home: makeTmpDir(),
+      workspaceRoot: makeTmpDir(),
+      env: {
+        LANGFUSE_PUBLIC_KEY: "pk-lf-1",
+        LANGFUSE_SECRET_KEY: "sk-lf-1",
+        LANGFUSE_BASE_URL: "https://us.cloud.langfuse.com",
+      },
+    });
+    expect(config.enabled).toBe(true);
+    expect(config.public_key).toBe("pk-lf-1");
+    expect(config.base_url).toBe("https://us.cloud.langfuse.com");
+  });
+
+  it("stays off when the keys have no host", () => {
     const config = getConfig({
       home: makeTmpDir(),
       workspaceRoot: makeTmpDir(),
       env: { LANGFUSE_PUBLIC_KEY: "pk-lf-1", LANGFUSE_SECRET_KEY: "sk-lf-1" },
     });
-    expect(config.enabled).toBe(true);
-    expect(config.public_key).toBe("pk-lf-1");
+    expect(config.enabled).toBe(false);
+    expect(config.base_url).toBe("");
+    expect(disabledReason(config, {})).toContain("missing LANGFUSE_BASE_URL");
   });
 
   it("resolves global file < project file < environment, with LANGFUSE_CURSOR_* winning", () => {
@@ -121,7 +137,14 @@ it("does not send inherited keys to a project-controlled host", () => {
       workspaceRoot: project,
       env: { LANGFUSE_PUBLIC_KEY: "pk-env", LANGFUSE_SECRET_KEY: "sk-env" },
     }).base_url,
-  ).toBe("https://cloud.langfuse.com");
+  ).toBe("");
+  expect(
+    getConfig({
+      home: makeTmpDir(),
+      workspaceRoot: project,
+      env: { LANGFUSE_PUBLIC_KEY: "pk-env", LANGFUSE_SECRET_KEY: "sk-env" },
+    }).enabled,
+  ).toBe(false);
 });
 
 it("uses a project's destination only with its complete pair, and permits explicit environment routing", () => {
@@ -153,7 +176,7 @@ it("uses a project's destination only with its complete pair, and permits explic
     }).base_url,
   ).toBe("https://explicit.example");
   writeJson(project, ".cursor/langfuse.json", { publicKey: "pk-project", secretKey: "sk-project" });
-  expect(getConfig({ home, workspaceRoot: project, env: {} }).base_url).toBe(
-    "https://cloud.langfuse.com",
-  );
+  const withoutHost = getConfig({ home, workspaceRoot: project, env: {} });
+  expect(withoutHost.base_url).toBe("");
+  expect(withoutHost.enabled).toBe(false);
 });

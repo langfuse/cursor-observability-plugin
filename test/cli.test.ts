@@ -106,7 +106,20 @@ describe("setup command", () => {
     const { code, out } = await run(["setup"], { PATH: process.env.PATH, HOME: home });
     expect(code).toBe(1);
     expect(out).toContain("--public-key");
+    expect(out).toContain("--base-url");
+    expect(out).not.toContain("default https://cloud.langfuse.com");
     expect(fs.existsSync(path.join(home, ".cursor"))).toBe(false);
+  });
+
+  it("writes nothing when the keys have no host", async () => {
+    const home = makeTmpDir();
+    const { code, out } = await run(
+      ["setup", "--public-key", "pk-lf-x", "--secret-key", "sk-lf-x"],
+      { PATH: process.env.PATH, HOME: home },
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("Required");
+    expect(fs.existsSync(path.join(home, ".cursor", "langfuse.json"))).toBe(false);
   });
 
   it("writes nothing when the keys cannot be verified", async () => {

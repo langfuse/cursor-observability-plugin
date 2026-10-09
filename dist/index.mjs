@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import { l as infoLog, o as configureLogging, p as readStdin, r as asString, s as debugLog, t as PLUGIN_VERSION } from "./version-ZGirXdLt.mjs";
-import { n as disabledReason, r as getConfig, t as ConversationStore } from "./state-BCqq8k6q.mjs";
+import { l as infoLog, o as configureLogging, p as readStdin, r as asString, s as debugLog, t as PLUGIN_VERSION } from "./version-B2EdcJjP.mjs";
+import { n as disabledReason, r as getConfig, t as ConversationStore } from "./state-DHhYKuAQ.mjs";
 import { t as applyCapturePolicy } from "./privacy-BohI-nng.mjs";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 
 //#region src/index.ts
 /**
@@ -15,6 +17,50 @@ import * as path from "node:path";
 * `LANGFUSE_CURSOR_FAIL_ON_ERROR=true` surfaces them as hook failures instead,
 * for testing.
 */
+/**
+* User-facing setup message for a new chat with no project API key.
+*
+* `sessionStart` is the hook Cursor documents as accepting `additional_context`.
+* `beforeSubmitPrompt` can show `user_message` only when `continue` is false,
+* which would discard the user's first prompt, so a missing key never blocks.
+* An already-open chat does not receive `sessionStart`; `/langfuse-setup`
+* covers that case. Keep the steps aligned with `commands/langfuse-setup.md`.
+*
+* The leading sentence is the signal `rules/langfuse-setup.mdc` matches.
+* A kill switch or `"enabled": false` does not get this text: the user turned
+* tracing off on purpose.
+*
+* Empty key and baseUrl fields keep tracing off. Placeholder strings like
+* `pk-lf-...` would count as keys and the hint would never show again.
+* baseUrl stays empty so the file does not pick a region for the user.
+*/
+function credentialsFile(home) {
+	return path.join(home, ".cursor", "langfuse.json");
+}
+function ensureCredentialsFile(home) {
+	const file = credentialsFile(home);
+	if (!fs.existsSync(file)) {
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, `${JSON.stringify({
+			publicKey: "",
+			secretKey: "",
+			baseUrl: ""
+		}, null, 2)}\n`);
+		fs.chmodSync(file, 384);
+	}
+	return file;
+}
+function setupMessage(file) {
+	return [
+		"Langfuse tracing is not configured.",
+		"",
+		"Create a project at https://langfuse.com/cloud if you don't have one. In the project, open Settings → API Keys and copy the public key, secret key, and base URL for your region.",
+		"",
+		"Self-hosted: follow https://langfuse.com/self-hosting (Langfuse v4) and use your instance URL as the base URL.",
+		"",
+		`Paste the public key, secret key, and base URL into ${`[${file}](${pathToFileURL(file).href})`}.`
+	].join("\n");
+}
 /** Decisions the gates expect. Everything we do is observe-only, so always allow. */
 const PASSTHROUGH = {
 	beforeSubmitPrompt: { continue: true },
@@ -50,7 +96,7 @@ async function exportAndClose(ctx, state, closedBy, stopPayload) {
 	const turnNumber = state.openTurn?.turnNumber ?? state.turnsCompleted + 1;
 	await store.withLock(async () => {
 		try {
-			const { exportTurn } = await import("./export-ClA3tmiD.mjs");
+			const { exportTurn } = await import("./export-C23vuE3p.mjs");
 			const result = await exportTurn({
 				config,
 				store,
@@ -77,7 +123,7 @@ async function exportAndClose(ctx, state, closedBy, stopPayload) {
 		}
 	});
 }
-async function handle(payload) {
+async function handle(payload, response) {
 	const hook = payload.hook_event_name;
 	const workspaceRoot = Array.isArray(payload.workspace_roots) ? asString(payload.workspace_roots[0]) : void 0;
 	const config = getConfig({ workspaceRoot });
@@ -89,6 +135,16 @@ async function handle(payload) {
 	failOnError = config.fail_on_error;
 	if (!config.enabled) {
 		if (hook === "beforeSubmitPrompt") infoLog(`Tracing off: ${disabledReason(config, process.env)}`);
+		if (hook === "sessionStart" && disabledReason(config, process.env).startsWith("Langfuse config incomplete")) {
+			const home = process.env.HOME ?? os.homedir();
+			const file = credentialsFile(home);
+			try {
+				ensureCredentialsFile(home);
+			} catch (error) {
+				infoLog("could not create credentials file:", error);
+			}
+			response.additional_context = setupMessage(file);
+		}
 		return;
 	}
 	if (!RECORDED_HOOKS.has(hook) && hook !== "sessionStart") {
@@ -150,7 +206,7 @@ async function handle(payload) {
 async function runHook() {
 	const subcommand = process.argv[2];
 	if (subcommand === "setup" || subcommand === "status" || subcommand === "--help") {
-		const cli = await import("./cli-CCufOVGz.mjs");
+		const cli = await import("./cli-DHWpcEEa.mjs");
 		const args = process.argv.slice(3);
 		process.exitCode = subcommand === "status" ? await cli.runStatus(args) : await cli.runSetup(args);
 		return;
@@ -163,9 +219,9 @@ async function runHook() {
 		return;
 	}
 	const hook = typeof payload?.hook_event_name === "string" ? payload.hook_event_name : "";
-	const response = PASSTHROUGH[hook] ?? {};
+	const response = { ...PASSTHROUGH[hook] ?? {} };
 	try {
-		if (payload) await handle(payload);
+		if (payload) await handle(payload, response);
 	} catch (error) {
 		infoLog(`hook ${hook} failed:`, error);
 		if (failOnError) process.exitCode = 1;
