@@ -1,10 +1,9 @@
-import { i as clipDeep, n as asNumber, r as asString, s as debugLog, u as isRecord } from "./version-ZGirXdLt.mjs";
+import { i as clipDeep, n as asNumber, r as asString, s as debugLog, u as isRecord } from "./version-B2EdcJjP.mjs";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as fs from "node:fs";
 
 //#region src/config.ts
-const DEFAULT_BASE_URL = "https://cloud.langfuse.com";
 function parseBoolean(value) {
 	if (typeof value === "boolean") return value;
 	if (typeof value !== "string") return void 0;
@@ -125,14 +124,14 @@ function getConfig(options = {}) {
 		...envConfig
 	};
 	const usesProjectKeys = projectConfig.public_key && projectConfig.secret_key && !envConfig.public_key && !envConfig.secret_key;
-	const baseUrl = envConfig.base_url ?? (usesProjectKeys ? projectConfig.base_url : globalConfig.base_url) ?? DEFAULT_BASE_URL;
+	const baseUrl = envConfig.base_url ?? (usesProjectKeys ? projectConfig.base_url : globalConfig.base_url);
 	const hasKeys = Boolean(merged.public_key && merged.secret_key);
 	const stateDir = expandHome(merged.state_dir ?? path.join("~", ".cursor", "langfuse"), home);
 	return {
-		enabled: (merged.enabled ?? true) && hasKeys,
+		enabled: (merged.enabled ?? true) && hasKeys && Boolean(baseUrl),
 		public_key: merged.public_key,
 		secret_key: merged.secret_key,
-		base_url: baseUrl.replace(/\/+$/, ""),
+		base_url: baseUrl?.replace(/\/+$/, "") ?? "",
 		environment: merged.environment,
 		release: merged.release,
 		user_id: merged.user_id,
@@ -151,7 +150,11 @@ function getConfig(options = {}) {
 }
 function disabledReason(config, env) {
 	if (parseBoolean(env.LANGFUSE_CURSOR_ENABLED ?? env.LANGFUSE_TRACING_ENABLED) === false) return "kill switch LANGFUSE_TRACING_ENABLED=false";
-	if (!config.public_key || !config.secret_key) return `Langfuse config incomplete: missing ${[!config.public_key ? "LANGFUSE_PUBLIC_KEY" : null, !config.secret_key ? "LANGFUSE_SECRET_KEY" : null].filter(Boolean).join(", ")}`;
+	if (!config.public_key || !config.secret_key || !config.base_url) return `Langfuse config incomplete: missing ${[
+		!config.public_key ? "LANGFUSE_PUBLIC_KEY" : null,
+		!config.secret_key ? "LANGFUSE_SECRET_KEY" : null,
+		!config.base_url ? "LANGFUSE_BASE_URL" : null
+	].filter(Boolean).join(", ")}`;
 	return "enabled=false in a langfuse.json config file";
 }
 

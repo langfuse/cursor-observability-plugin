@@ -1,0 +1,8 @@
+---
+description: Tell the user how to save Langfuse API keys when tracing is not configured
+alwaysApply: true
+---
+
+When the session context contains the sentence "Langfuse tracing is not configured.", start the first reply with the setup message from that context. Copy it as written, including the line breaks and the credentials file link. Do not add setup steps. Then do the user's task.
+
+When that sentence is absent, do the user's task. Setup instructions stay out of the reply.

@@ -14,8 +14,10 @@ import { asNumber, asString, isRecord } from "./utils.js";
  * matching `LANGFUSE_*` form, so credentials can be scoped to Cursor without
  * disturbing other Langfuse tooling on the same machine.
  *
- * Tracing is on when both keys are present. `LANGFUSE_TRACING_ENABLED=false`
- * (or `"enabled": false` in a config file) is the kill switch.
+ * Tracing is on when both keys and a base URL are present. There is no default
+ * region: an empty host stays off until the user sets the URL for their account.
+ * `LANGFUSE_TRACING_ENABLED=false` (or `"enabled": false` in a config file) is
+ * the kill switch.
  */
 export type Config = {
   enabled: boolean;
@@ -41,8 +43,6 @@ export type Config = {
 };
 
 type PartialConfig = Partial<Config>;
-
-const DEFAULT_BASE_URL = "https://cloud.langfuse.com";
 
 export function parseBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
@@ -187,17 +187,15 @@ export function getConfig(options: ConfigOptions = {}): Config {
     !envConfig.public_key &&
     !envConfig.secret_key;
   const baseUrl =
-    envConfig.base_url ??
-    (usesProjectKeys ? projectConfig.base_url : globalConfig.base_url) ??
-    DEFAULT_BASE_URL;
+    envConfig.base_url ?? (usesProjectKeys ? projectConfig.base_url : globalConfig.base_url);
   const hasKeys = Boolean(merged.public_key && merged.secret_key);
   const stateDir = expandHome(merged.state_dir ?? path.join("~", ".cursor", "langfuse"), home);
 
   return {
-    enabled: (merged.enabled ?? true) && hasKeys,
+    enabled: (merged.enabled ?? true) && hasKeys && Boolean(baseUrl),
     public_key: merged.public_key,
     secret_key: merged.secret_key,
-    base_url: baseUrl.replace(/\/+$/, ""),
+    base_url: baseUrl?.replace(/\/+$/, "") ?? "",
     environment: merged.environment,
     release: merged.release,
     user_id: merged.user_id,
@@ -218,10 +216,11 @@ export function getConfig(options: ConfigOptions = {}): Config {
 export function disabledReason(config: Config, env: Record<string, string | undefined>): string {
   const killSwitch = parseBoolean(env.LANGFUSE_CURSOR_ENABLED ?? env.LANGFUSE_TRACING_ENABLED);
   if (killSwitch === false) return "kill switch LANGFUSE_TRACING_ENABLED=false";
-  if (!config.public_key || !config.secret_key) {
+  if (!config.public_key || !config.secret_key || !config.base_url) {
     const missing = [
       !config.public_key ? "LANGFUSE_PUBLIC_KEY" : null,
       !config.secret_key ? "LANGFUSE_SECRET_KEY" : null,
+      !config.base_url ? "LANGFUSE_BASE_URL" : null,
     ].filter(Boolean);
     return `Langfuse config incomplete: missing ${missing.join(", ")}`;
   }
