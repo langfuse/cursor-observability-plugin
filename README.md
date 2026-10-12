@@ -82,8 +82,9 @@ that URL. See [self-hosting](https://langfuse.com/self-hosting).
 
 ### 3. Save the keys where Cursor can read them
 
-Create `~/.cursor/langfuse.json` with mode 600. Set `baseUrl` to the host for
-your region from the table above.
+A new chat creates `~/.cursor/langfuse.json` when it is missing and links to
+it. Paste the public key, secret key, and base URL into that file. `baseUrl`
+is the host for your region from the table above.
 
 ```json
 {
@@ -97,11 +98,11 @@ your region from the table above.
 all three are set. There is no default region. `userId` defaults to the email of
 the signed-in Cursor account.
 
-Write the keys in this file. A key exported only in the shell profile is not
-read when Cursor starts from the Dock. Leave the secret key out of the chat.
+A key exported only in the shell profile is not read when Cursor starts from
+the Dock. Leave the secret key out of the chat.
 
-`/langfuse-setup` creates this file when it is missing. Paste the keys
-into it. Leave the secret key out of the chat.
+A chat that was already open does not get that file. Run `/langfuse-setup` in
+that chat and the agent creates it. Paste the keys into the file.
 
 Send a prompt in a new chat, then open the Langfuse project. The turn appears
 as a trace.
