@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { disabledReason, getConfig, type Config } from "./config.js";
 import { applyCapturePolicy } from "./privacy.js";
@@ -18,6 +20,53 @@ import { PLUGIN_VERSION } from "./version.js";
  * `LANGFUSE_CURSOR_FAIL_ON_ERROR=true` surfaces them as hook failures instead,
  * for testing.
  */
+
+/**
+ * User-facing setup message for a new chat with no project API key.
+ *
+ * `sessionStart` is the hook Cursor documents as accepting `additional_context`.
+ * `beforeSubmitPrompt` can show `user_message` only when `continue` is false,
+ * which would discard the user's first prompt, so a missing key never blocks.
+ * An already-open chat does not receive `sessionStart`; `/langfuse-setup`
+ * covers that case. Keep the steps aligned with `commands/langfuse-setup.md`.
+ *
+ * The leading sentence is the signal `rules/langfuse-setup.mdc` matches.
+ * A kill switch or `"enabled": false` does not get this text: the user turned
+ * tracing off on purpose.
+ *
+ * Empty key and baseUrl fields keep tracing off. Placeholder strings like
+ * `pk-lf-...` would count as keys and the hint would never show again.
+ * baseUrl stays empty so the file does not pick a region for the user.
+ */
+function credentialsFile(home: string): string {
+  return path.join(home, ".cursor", "langfuse.json");
+}
+
+function ensureCredentialsFile(home: string): string {
+  const file = credentialsFile(home);
+  if (!fs.existsSync(file)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify({ publicKey: "", secretKey: "", baseUrl: "" }, null, 2)}\n`,
+    );
+    fs.chmodSync(file, 0o600);
+  }
+  return file;
+}
+
+function setupMessage(file: string): string {
+  const link = `[${file}](${pathToFileURL(file).href})`;
+  return [
+    "Langfuse tracing is not configured.",
+    "",
+    "Create a project at https://langfuse.com/cloud if you don't have one. In the project, open Settings → API Keys and copy the public key, secret key, and base URL for your region.",
+    "",
+    "Self-hosted: follow https://langfuse.com/self-hosting (Langfuse v4) and use your instance URL as the base URL.",
+    "",
+    `Paste the public key, secret key, and base URL into ${link}.`,
+  ].join("\n");
+}
 
 /** Decisions the gates expect. Everything we do is observe-only, so always allow. */
 const PASSTHROUGH: Record<string, Record<string, unknown>> = {
@@ -102,7 +151,7 @@ async function exportAndClose(
   });
 }
 
-async function handle(payload: HookBase): Promise<void> {
+async function handle(payload: HookBase, response: Record<string, unknown>): Promise<void> {
   const hook = payload.hook_event_name;
   const workspaceRoot = Array.isArray(payload.workspace_roots)
     ? asString(payload.workspace_roots[0])
@@ -113,9 +162,24 @@ async function handle(payload: HookBase): Promise<void> {
   failOnError = config.fail_on_error;
 
   if (!config.enabled) {
-    // One line per turn, not per event.
+    // One line per turn, not per event. The prompt still proceeds.
     if (hook === "beforeSubmitPrompt")
       infoLog(`Tracing off: ${disabledReason(config, process.env)}`);
+    // Incomplete credentials only. A kill switch or `"enabled": false` is an
+    // opt-out, so that case gets no setup hint.
+    if (
+      hook === "sessionStart" &&
+      disabledReason(config, process.env).startsWith("Langfuse config incomplete")
+    ) {
+      const home = process.env.HOME ?? os.homedir();
+      const file = credentialsFile(home);
+      try {
+        ensureCredentialsFile(home);
+      } catch (error) {
+        infoLog("could not create credentials file:", error);
+      }
+      response.additional_context = setupMessage(file);
+    }
     return;
   }
   if (!RECORDED_HOOKS.has(hook) && hook !== "sessionStart") {
@@ -206,9 +270,9 @@ export async function runHook(): Promise<void> {
     return;
   }
   const hook = typeof payload?.hook_event_name === "string" ? payload.hook_event_name : "";
-  const response = PASSTHROUGH[hook] ?? {};
+  const response: Record<string, unknown> = { ...(PASSTHROUGH[hook] ?? {}) };
   try {
-    if (payload) await handle(payload);
+    if (payload) await handle(payload, response);
   } catch (error) {
     infoLog(`hook ${hook} failed:`, error);
     if (failOnError) process.exitCode = 1;

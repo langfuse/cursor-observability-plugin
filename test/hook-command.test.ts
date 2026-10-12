@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -103,6 +103,65 @@ describe("dist/index.mjs", () => {
     expect(log).toContain("emitted turn 1");
     expect(log).toContain("Export of turn 1 failed");
   }, 60_000);
+
+  it("tells a new session how to add keys, and still lets the prompt through", async () => {
+    const home = makeTmpDir();
+    const env = { PATH: process.env.PATH, HOME: home };
+
+    const started = await runHook({ hook_event_name: "sessionStart", composer_mode: "agent" }, env);
+    expect(started.code).toBe(0);
+    const body = JSON.parse(started.stdout) as { additional_context?: string };
+    const credentials = path.join(home, ".cursor", "langfuse.json");
+    expect(body.additional_context).toContain("Langfuse tracing is not configured.");
+    expect(body.additional_context).toContain("https://langfuse.com/cloud");
+    expect(body.additional_context).not.toContain("https://hipaa.cloud.langfuse.com");
+    expect(body.additional_context).not.toContain("https://jp.cloud.langfuse.com");
+    expect(body.additional_context).toContain("https://langfuse.com/self-hosting");
+    expect(body.additional_context).toContain("Langfuse v4");
+    expect(body.additional_context).toContain(credentials);
+    expect(body.additional_context).toContain(`](${pathToFileURL(credentials).href})`);
+    expect(body.additional_context).not.toMatch(/sk-lf-[A-Za-z0-9]/);
+    expect(fs.existsSync(path.join(home, ".cursor", "langfuse", "conversations"))).toBe(false);
+    const written = JSON.parse(fs.readFileSync(credentials, "utf-8")) as {
+      publicKey: string;
+      secretKey: string;
+      baseUrl: string;
+    };
+    expect(written.publicKey).toBe("");
+    expect(written.secretKey).toBe("");
+    expect(written.baseUrl).toBe("");
+    expect(fs.statSync(credentials).mode & 0o777).toBe(0o600);
+
+    const prompt = await runHook({ hook_event_name: "beforeSubmitPrompt", prompt: "hello" }, env);
+    expect(prompt.stdout).toBe('{"continue":true}');
+  });
+
+  it("tells a new session to set a host when the keys have none", async () => {
+    const home = makeTmpDir();
+    const env = {
+      PATH: process.env.PATH,
+      HOME: home,
+      LANGFUSE_PUBLIC_KEY: "pk-lf-test",
+      LANGFUSE_SECRET_KEY: "sk-lf-test",
+    };
+    const run = await runHook({ hook_event_name: "sessionStart", composer_mode: "agent" }, env);
+    const body = JSON.parse(run.stdout) as { additional_context?: string };
+    expect(body.additional_context).toContain("Langfuse tracing is not configured.");
+    expect(body.additional_context).toContain("base URL for your region");
+  });
+
+  it("does not add setup instructions when tracing is switched off on purpose", async () => {
+    const home = makeTmpDir();
+    const env = {
+      PATH: process.env.PATH,
+      HOME: home,
+      LANGFUSE_PUBLIC_KEY: "pk-lf-test",
+      LANGFUSE_SECRET_KEY: "sk-lf-test",
+      LANGFUSE_TRACING_ENABLED: "false",
+    };
+    const run = await runHook({ hook_event_name: "sessionStart", composer_mode: "agent" }, env);
+    expect(run.stdout).toBe("{}");
+  });
 
   it("stays silent and fast when tracing is off", async () => {
     const home = makeTmpDir();

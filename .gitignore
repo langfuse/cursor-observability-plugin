@@ -1,6 +1,7 @@
 node_modules/
 *.log
 .DS_Store
+.pnpm-store/
 
 # Editing-tool scratch: Claude Code tracks its writes here and recreates the
 # directory whenever the repo is edited with it. Never part of the plugin.

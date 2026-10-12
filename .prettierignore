@@ -1,4 +1,6 @@
 node_modules
+# Cursor rule files. Prettier has no parser for this extension.
+*.mdc
 .claude
 dist
 pnpm-lock.yaml

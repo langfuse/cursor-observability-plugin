@@ -2,7 +2,9 @@
   "name": "langfuse-observability",
   "displayName": "Langfuse Observability",
   "version": "0.1.0",
-  "description": "Trace Cursor agent sessions to Langfuse: prompts, agent turns, model generations, tool calls, subagents and token usage.",
+  "description": "Trace Cursor agent sessions to Langfuse and evaluate agent performance and quality: prompts, agent turns, model generations, tool calls, subagents and token usage. Tracing starts after a project API key pair is saved in ~/.cursor/langfuse.json.",
+  "rules": "./rules/",
+  "commands": "./commands/",
   "author": {
     "name": "Langfuse",
     "email": "support@langfuse.com"
