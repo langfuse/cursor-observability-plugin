@@ -24,6 +24,7 @@ import type {
   SubagentStopPayload,
   Thought,
   ToolCall,
+  TranscriptToolUse,
   TranscriptTurn,
   Turn,
   TurnUsage,
@@ -107,6 +108,53 @@ export function nameMatchesTool(callName: string, toolName: string): boolean {
   const b = normalizeToolName(toolName);
   if (!a || !b) return false;
   return a === b || a.endsWith(`_${b}`) || b.endsWith(`_${a}`);
+}
+
+function dynamicToolFromTranscript(input: unknown): { namespace?: string; toolName?: string } {
+  if (!isRecord(input)) return {};
+  return { namespace: asString(input.namespace), toolName: asString(input.toolName) };
+}
+
+/** Align a hook-observed MCP call with the CallDynamicTool row Cursor writes to the transcript. */
+export function callMatchesTranscriptTool(call: ToolCall, use: TranscriptToolUse): boolean {
+  if (nameMatchesTool(call.name, use.name)) return true;
+  if (use.name !== "CallDynamicTool") return false;
+
+  const dynamic = dynamicToolFromTranscript(use.input);
+  const target = dynamic.toolName;
+  if (!target) return false;
+
+  if (nameMatchesTool(call.name, target)) return true;
+  if (nameMatchesTool(call.name, `MCP:${target}`)) return true;
+
+  if (dynamic.namespace) {
+    const qualified = `${dynamic.namespace}.${target}`;
+    if (nameMatchesTool(call.name, qualified)) return true;
+    if (call.mcpServer && nameMatchesTool(call.name, target)) {
+      const nsTail = dynamic.namespace
+        .toLowerCase()
+        .replace(/^user-/, "")
+        .split("-")
+        .pop();
+      const serverTail = call.mcpServer.toLowerCase().split("-").pop();
+      if (
+        nsTail &&
+        serverTail &&
+        (nsTail === serverTail || dynamic.namespace.includes(call.mcpServer))
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return isMcpToolName(call.name) && nameMatchesTool(call.name, target);
+}
+
+function applyTranscriptToolIdentity(call: ToolCall, use: TranscriptToolUse): void {
+  if (use.name !== "CallDynamicTool" || !isRecord(use.input)) return;
+  call.name = "CallDynamicTool";
+  // Transcript input carries namespace/toolName; hook input is only the MCP arguments.
+  call.input = use.input;
 }
 
 function buildToolCalls(events: LoggedEvent[], captureToolOutput: boolean): ToolCall[] {
@@ -469,9 +517,11 @@ function buildGenerationsFromTranscript(
   const unassigned = [...calls];
   rows.forEach((row, i) => {
     for (const use of row.toolUses) {
-      const idx = unassigned.findIndex((c) => nameMatchesTool(c.name, use.name));
+      const idx = unassigned.findIndex((c) => callMatchesTranscriptTool(c, use));
       if (idx >= 0) {
-        generations[i]!.toolCalls.push(unassigned.splice(idx, 1)[0]!);
+        const call = unassigned.splice(idx, 1)[0]!;
+        applyTranscriptToolIdentity(call, use);
+        generations[i]!.toolCalls.push(call);
       } else {
         // Observed in the transcript but no hook fired for it (hook not registered).
         generations[i]!.toolCalls.push({

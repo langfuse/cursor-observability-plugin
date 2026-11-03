@@ -420,6 +420,88 @@ describe("emitTurn", () => {
     expect(attr(root, "langfuse.observation.metadata.cursor.max_tool_level")).toBe("ERROR");
   });
 
+  it("emits one MCP tool span when hooks and CallDynamicTool transcript disagree on naming", async () => {
+    const events = [
+      ev("beforeSubmitPrompt", { prompt: "aws logs" }, 0),
+      ev(
+        "preToolUse",
+        {
+          tool_name: "MCP:aws___run_script",
+          tool_input: { aws_profile: "demo" },
+          tool_use_id: "aws-1",
+        },
+        100,
+      ),
+      ev(
+        "beforeMCPExecution",
+        {
+          tool_name: "aws___run_script",
+          tool_input: '{"aws_profile":"demo"}',
+          mcp_server_name: "user-aws-mcp",
+        },
+        110,
+      ),
+      ev(
+        "afterMCPExecution",
+        {
+          tool_name: "aws___run_script",
+          mcp_server_name: "user-aws-mcp",
+          result_json: '{"ok":true}',
+          duration: 400,
+        },
+        520,
+      ),
+      ev(
+        "postToolUse",
+        {
+          tool_name: "MCP:aws___run_script",
+          tool_use_id: "aws-1",
+          tool_output: '{"ok":true}',
+          duration: 420,
+        },
+        530,
+      ),
+      ev("stop", { status: "completed" }, 600),
+    ];
+    const transcript = splitTranscriptTurns(
+      parseTranscriptRows(
+        transcriptRows("aws logs", [
+          {
+            text: "Querying CloudWatch.",
+            tools: [
+              {
+                name: "CallDynamicTool",
+                input: {
+                  namespace: "user-aws-mcp",
+                  toolName: "aws___run_script",
+                  arguments: { aws_profile: "demo" },
+                },
+              },
+            ],
+          },
+        ]),
+      ),
+    );
+    const turn = assembleTurn({
+      conversationId: CONVERSATION,
+      events,
+      turnNumber: 1,
+      closedBy: "stop",
+      stopPayload: events[events.length - 1]!.payload as StopPayload,
+      transcriptTurns: transcript,
+      now: BASE_TS + 700,
+      captureToolOutput: true,
+    });
+    await flushed(emitTurn(turn, { config: baseConfig, ids }));
+    const spans = exporter.getFinishedSpans();
+    expect(byName(spans, "user-aws-mcp.aws___run_script")).toHaveLength(1);
+    expect(byName(spans, "user-aws-mcp.MCP:aws___run_script")).toHaveLength(0);
+    const tool = byName(spans, "user-aws-mcp.aws___run_script")[0]!;
+    expect(ms(tool.endTime) - ms(tool.startTime)).toBeGreaterThan(0);
+    expect(byName(spans, "Cursor Turn")).toHaveLength(1);
+    expect(byName(spans, "LLM")).toHaveLength(1);
+  });
+
   it("keeps the skill observation name when skill tags are off", async () => {
     const events = [
       ev("beforeSubmitPrompt", { prompt: "land it" }, 0),
