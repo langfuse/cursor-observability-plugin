@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assembleTurn, nameMatchesTool } from "../src/assemble.js";
+import { assembleTurn, callMatchesTranscriptTool, nameMatchesTool } from "../src/assemble.js";
 import { parseTranscriptRows, splitTranscriptTurns } from "../src/transcript.js";
 import type { StopPayload } from "../src/types.js";
 import {
@@ -280,6 +280,97 @@ describe("assembleTurn with a transcript", () => {
     const events = sampleEvents().filter((e) => e.event !== "beforeSubmitPrompt");
     const t = assemble(events, { transcriptTurns: transcript, turnNumber: 2 });
     expect(t.prompt).toBe("Add a README");
+  });
+
+  it("does not duplicate MCP tools when the transcript uses CallDynamicTool", () => {
+    const events = [
+      ev("beforeSubmitPrompt", { prompt: "search atlas" }, 0),
+      ev(
+        "preToolUse",
+        {
+          tool_name: "MCP:grep",
+          tool_input: { pattern: "foo" },
+          tool_use_id: "mcp-1",
+        },
+        100,
+      ),
+      ev(
+        "beforeMCPExecution",
+        {
+          tool_name: "grep",
+          tool_input: '{"pattern":"foo"}',
+          mcp_server_name: "atlas",
+        },
+        110,
+      ),
+      ev(
+        "afterMCPExecution",
+        {
+          tool_name: "grep",
+          mcp_server_name: "atlas",
+          result_json: '{"ok":true}',
+          duration: 500,
+        },
+        600,
+      ),
+      ev(
+        "postToolUse",
+        {
+          tool_name: "MCP:grep",
+          tool_input: { pattern: "foo" },
+          tool_use_id: "mcp-1",
+          tool_output: '{"ok":true}',
+          duration: 520,
+        },
+        620,
+      ),
+      ev("stop", { status: "completed" }, 700),
+    ];
+    const mcpTranscript = splitTranscriptTurns(
+      parseTranscriptRows(
+        transcriptRows("search atlas", [
+          {
+            text: "Searching.",
+            tools: [
+              {
+                name: "CallDynamicTool",
+                input: {
+                  namespace: "user-atlas",
+                  toolName: "grep",
+                  arguments: { pattern: "foo" },
+                },
+              },
+            ],
+          },
+        ]),
+      ),
+    );
+    const turn = assemble(events, { transcriptTurns: mcpTranscript, turnNumber: 1 });
+    const calls = turn.generations.flatMap((g) => g.toolCalls);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.name).toBe("CallDynamicTool");
+    expect(calls[0]!.sources).not.toContain("transcript");
+    expect(calls[0]!.endTime).toBeGreaterThan(calls[0]!.startTime);
+    expect(calls[0]!.durationMs).toBeGreaterThan(0);
+  });
+});
+
+describe("callMatchesTranscriptTool", () => {
+  it("pairs CallDynamicTool transcript rows with MCP preToolUse hook calls", () => {
+    const hookCall = {
+      name: "MCP:grep",
+      input: { pattern: "foo" },
+      startTime: 0,
+      endTime: 100,
+      sources: ["preToolUse", "postToolUse"],
+      subagents: [],
+      mcpServer: "atlas",
+    };
+    const use = {
+      name: "CallDynamicTool",
+      input: { namespace: "user-atlas", toolName: "grep", arguments: { pattern: "foo" } },
+    };
+    expect(callMatchesTranscriptTool(hookCall, use)).toBe(true);
   });
 });
 

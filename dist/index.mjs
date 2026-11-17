@@ -96,7 +96,7 @@ async function exportAndClose(ctx, state, closedBy, stopPayload) {
 	const turnNumber = state.openTurn?.turnNumber ?? state.turnsCompleted + 1;
 	await store.withLock(async () => {
 		try {
-			const { exportTurn } = await import("./export-C23vuE3p.mjs");
+			const { exportTurn } = await import("./export-eZfCde_f.mjs");
 			const result = await exportTurn({
 				config,
 				store,
